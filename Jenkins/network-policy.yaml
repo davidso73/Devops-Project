@@ -80,7 +80,17 @@ spec:
       - { key: role, operator: In, values: ["ci-agent", "cd-agent"] }
   policyTypes: ["Egress"]
   egress:
-    - ports: [{ protocol: TCP, port: 443 }]
+    # Port 80, not just 443: confirmed necessary live - the worker image's
+    # Dockerfile runs `apt-get install procps` against Debian's default HTTP
+    # (not HTTPS) mirrors, and 443-only egress made that fail with
+    # "Unable to locate package" (apt's package index never actually
+    # downloaded). DNS (UDP/TCP 53) is required for the same reason - a
+    # build step can't resolve deb.debian.org, ECR, or PyPI without it.
+    - ports:
+        - { protocol: TCP, port: 443 }
+        - { protocol: TCP, port: 80 }
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
     - to:
         - podSelector:
             matchLabels:
