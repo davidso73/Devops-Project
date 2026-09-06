@@ -13,6 +13,12 @@ spec:
   serviceAccountName: jenkins-cd-agent
   automountServiceAccountToken: true
   containers:
+    # See ci-agent-pod.yaml.tpl - same jnlp-container-size override, same
+    # 2-node free-tier capacity reason.
+    - name: jnlp
+      resources:
+        requests: { cpu: "50m", memory: "96Mi" }
+        limits: { cpu: "200m", memory: "192Mi" }
     - name: deploy-tools
       image: 832767338129.dkr.ecr.il-central-1.amazonaws.com/vmapp-cd-tools:v1.0.0
       imagePullPolicy: IfNotPresent

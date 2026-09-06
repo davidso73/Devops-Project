@@ -12,6 +12,15 @@ spec:
   serviceAccountName: jenkins-ci-agent
   automountServiceAccountToken: true
   containers:
+    # Overrides the Kubernetes plugin's implicit "jnlp" agent-connection
+    # container (default request 100m/256Mi) with a smaller one - this
+    # 2-node, t3.small (~1.4Gi allocatable per node) free-tier cluster
+    # doesn't have room for the plugin's default on top of buildkit+tools
+    # (see README "Trade-offs" - node capacity).
+    - name: jnlp
+      resources:
+        requests: { cpu: "50m", memory: "96Mi" }
+        limits: { cpu: "200m", memory: "192Mi" }
     - name: buildkit
       image: moby/buildkit:v0.17.1-rootless
       imagePullPolicy: IfNotPresent
@@ -26,8 +35,27 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
-        allowPrivilegeEscalation: false
+        # Rootless BuildKit's rootlesskit wrapper builds its own user
+        # namespace by invoking newuidmap/newgidmap, which are setuid-root
+        # binaries inside the image - allowPrivilegeEscalation: false sets
+        # the kernel's no_new_privs, which disables setuid entirely and
+        # makes those calls fail outright ("operation not permitted"),
+        # confirmed live: buildctl builds never started at all without this.
+        # This container structurally cannot build container images without
+        # some privilege-escalation path; rootless BuildKit's is the
+        # narrowest one available (no docker.sock, no privileged mode, no
+        # host root) - see README "Agent and container security" for the
+        # comparison against buildah/DinD that led to this choice anyway.
+        allowPrivilegeEscalation: true
+        # newuidmap/newgidmap are setuid-root, but a dropped-to-empty
+        # capability bounding set blocks a setuid binary from gaining a
+        # capability on exec even with allowPrivilegeEscalation: true (the
+        # kernel intersects the binary's capabilities with the process's
+        # bounding set) - confirmed live: the same "operation not permitted"
+        # persisted with allowPrivilegeEscalation: true alone until SETUID/
+        # SETGID were added back here. Every other capability stays dropped.
         capabilities:
+          add: ["SETUID", "SETGID"]
           drop: ["ALL"]
         # Rootless BuildKit creates a user namespace (unshare) to build
         # images without a privileged daemon or docker.sock - the default
@@ -38,8 +66,8 @@ spec:
         seccompProfile:
           type: Unconfined
       resources:
-        requests: { cpu: "300m", memory: "512Mi" }
-        limits: { cpu: "1", memory: "1Gi" }
+        requests: { cpu: "200m", memory: "300Mi" }
+        limits: { cpu: "1", memory: "700Mi" }
       volumeMounts:
         - name: workspace-volume
           mountPath: /home/jenkins/agent
@@ -60,8 +88,8 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       resources:
-        requests: { cpu: "200m", memory: "256Mi" }
-        limits: { cpu: "500m", memory: "512Mi" }
+        requests: { cpu: "100m", memory: "150Mi" }
+        limits: { cpu: "500m", memory: "350Mi" }
       volumeMounts:
         - name: workspace-volume
           mountPath: /home/jenkins/agent

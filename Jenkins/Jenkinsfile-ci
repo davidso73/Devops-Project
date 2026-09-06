@@ -71,6 +71,7 @@ pipeline {
                 container('tools') {
                     sh '''
                         cd app/backend
+                        pip install --quiet -r requirements.txt
                         python -m pytest tests/ --junitxml=../../test-results.xml -v
                     '''
                 }

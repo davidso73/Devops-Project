@@ -939,8 +939,25 @@ guarantee than masking: there's nothing there to leak in the first place.
   instead (see "Image Security" in the K8s phase above for why this option
   was chosen over buildah/DinD - same reasoning applies here).
 - **`runAsNonRoot` + `allowPrivilegeEscalation: false`** on every container
-  in both agent pod templates and the controller itself.
-- **Capabilities**: `drop: ["ALL"]` everywhere.
+  in both agent pod templates and the controller itself, with **one
+  documented exception**: the BuildKit container needs
+  `allowPrivilegeEscalation: true`, confirmed live - rootless BuildKit's
+  `rootlesskit` wrapper builds its own user namespace via the setuid-root
+  `newuidmap`/`newgidmap` binaries baked into the image, and
+  `allowPrivilegeEscalation: false` sets the kernel's `no_new_privs`, which
+  disables setuid outright and fails the build before it starts
+  (`newuidmap ... operation not permitted`). This container is structurally
+  incapable of building an image without some privilege-escalation path;
+  rootless BuildKit's is the narrowest one available (no `docker.sock`, no
+  privileged mode, no host root) - see immediately below for why that
+  option was chosen over buildah/DinD in the first place.
+- **Capabilities**: `drop: ["ALL"]` everywhere, with one addition on top for
+  the same BuildKit container - `add: ["SETUID", "SETGID"]`, confirmed
+  necessary live: a dropped-to-empty capability bounding set blocks
+  `newuidmap`/`newgidmap` from gaining those capabilities on exec even with
+  `allowPrivilegeEscalation: true` (the kernel intersects a setuid binary's
+  capabilities with the process's bounding set). Every other capability -
+  on every container, including this one - stays dropped.
 - **seccomp**: `RuntimeDefault` everywhere, with **one documented
   exception** - the BuildKit container needs `Unconfined` because rootless
   BuildKit creates a user namespace (the `unshare` syscall) to build images
