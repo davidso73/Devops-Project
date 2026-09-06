@@ -81,6 +81,16 @@ variable "node_instance_type" {
 }
 
 variable "node_desired_size" {
+  # Attempted to bump this from 2 to 3 for the Jenkins phase (nodes were
+  # already ~23% memory-allocated before adding a Jenkins controller plus
+  # on-demand build agents), but AWS rejected the scaling update:
+  # `UpdateNodegroupConfig` fails with the node group's own health check
+  # reporting AccessDenied for the AWSServiceRoleForAmazonEKSNodegroup
+  # service-linked role - an account-level restriction on managing this
+  # Auto Scaling Group, consistent with the earlier free-tier-instance-type
+  # restriction hit provisioning this same node group. Left at 2 (existing,
+  # already-running nodes are unaffected and stay healthy); Jenkins is sized
+  # to fit within that instead - see README trade-offs.
   type    = number
   default = 2
 }

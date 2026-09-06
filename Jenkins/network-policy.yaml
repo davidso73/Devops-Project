@@ -1,0 +1,93 @@
+# Enforced via the same VPC CNI native NetworkPolicy support already enabled
+# for the app (K8s/terraform/eks.tf, aws_eks_addon.vpc_cni). Mirrors the
+# app's own network-policy pattern: default-deny, then narrow explicit allows.
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: jenkins
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+---
+# Controller: reachable from the ALB (arrives as a VPC IP, not a pod - same
+# reasoning as the app's frontend policy) on 8080, and from agent pods on
+# 50000 (JNLP - agents connect out to the controller to receive work).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-controller
+  namespace: jenkins
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: jenkins-controller
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - ipBlock: { cidr: 10.0.0.0/16 }
+      ports:
+        - { protocol: TCP, port: 8080 }
+    - from:
+        - podSelector:
+            matchExpressions:
+              - { key: role, operator: In, values: ["ci-agent", "cd-agent"] }
+      ports:
+        - { protocol: TCP, port: 50000 }
+---
+# Agent pods (CI and CD): no inbound at all - they only ever initiate
+# connections outward (to the controller, git, the registry, or the k8s API).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress-agents
+  namespace: jenkins
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: role, operator: In, values: ["ci-agent", "cd-agent"] }
+  policyTypes: ["Ingress"]
+---
+# Egress: controller needs the k8s API (to schedule/manage agent pods) plus
+# DNS; agents need DNS, HTTPS (git/ECR/k8s API - none of which have fixed
+# IPs, so this stays broad, same tradeoff as the app's own egress policy),
+# and the controller's JNLP port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-controller
+  namespace: jenkins
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: jenkins-controller
+  policyTypes: ["Egress"]
+  egress:
+    - ports: [{ protocol: TCP, port: 443 }]
+    - ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-agents
+  namespace: jenkins
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: role, operator: In, values: ["ci-agent", "cd-agent"] }
+  policyTypes: ["Egress"]
+  egress:
+    - ports: [{ protocol: TCP, port: 443 }]
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: jenkins-controller
+      ports:
+        - { protocol: TCP, port: 8080 }
+        - { protocol: TCP, port: 50000 }
+    - ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }

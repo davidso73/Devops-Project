@@ -1,0 +1,98 @@
+# The `!include <file>` references below resolve relative to this file's own
+# directory once mounted in the controller pod. install-jenkins.sh builds a
+# single ConfigMap from this file plus agent-pods/ci-agent-pod.yaml.tpl,
+# agent-pods/cd-agent-pod.yaml.tpl, and jobs/seed-job.groovy (flattened to
+# their basenames, which is why the includes below use basenames, not their
+# real repo-relative paths) - see that script for the exact `kubectl create
+# configmap` command, and helm-values.yaml's `controller.JCasC.configMapName`
+# which points the chart at it.
+#
+# The two pod-template files use a ".yaml.tpl" extension, NOT ".yaml": JCasC's
+# own directory scan of CASC_JENKINS_CONFIG independently treats every
+# .yaml/.yml/.json file it finds as its OWN top-level config source, in
+# addition to anything pulled in here via !include. Since those files are
+# raw Kubernetes Pod manifests (apiVersion/kind/spec, not JCasC schema), JCasC
+# tried to parse them as a second/third config document and aborted the
+# entire reload with "Found conflicting configuration" before ever reaching
+# the jobs:/unclassified: blocks below - which silently looked like jobs:
+# and unclassified: were being ignored, when the real cause was the whole
+# reload failing partway through. Renaming them out of JCasC's scan pattern
+# (while !include still reads them fine regardless of extension) fixes this.
+jenkins:
+  systemMessage: "vmapp CI/CD - configured entirely from code (JCasC). See Jenkins/README section in the project root README.md."
+
+  # Local security realm with exactly one bootstrapped account. The password
+  # is never in this file - it's injected as an environment variable from a
+  # Kubernetes Secret (see credentials/secret.example.yaml + helm-values.yaml,
+  # which mounts it as JENKINS_ADMIN_PASSWORD). This is the only admin-equivalent
+  # identity in the system, scoped to Jenkins UI administration only - it has
+  # no bearing on the Kubernetes RBAC granted to the CI/CD agents themselves,
+  # which is separately and much more narrowly scoped (see the RBAC manifests
+  # and the README's "RBAC and permissions" section).
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "${JENKINS_ADMIN_USER}"
+          password: "${JENKINS_ADMIN_PASSWORD}"
+
+  # Matrix authorization, least-privilege: the admin account gets full
+  # control (it has to - someone must administer Jenkins); everyone else
+  # (anonymous, and any future non-admin accounts) gets read-only job/build
+  # visibility and nothing else - no configure, no admin, no credential
+  # access. There is no "everyone gets build/deploy" default anywhere.
+  authorizationStrategy:
+    globalMatrix:
+      permissions:
+        - "Overall/Administer:${JENKINS_ADMIN_USER}"
+        - "Overall/Read:authenticated"
+        - "Job/Read:authenticated"
+        - "Job/Build:authenticated"
+
+  # Dynamic agents only - the controller itself is never a build/deploy
+  # executor (0 controller executors), matching the requirement that the
+  # controller "is not used for running build or deploy."
+  numExecutors: 0
+
+  clouds:
+    - kubernetes:
+        name: "vmapp-eks"
+        namespace: "jenkins"
+        serverUrl: "https://kubernetes.default.svc"  # in-cluster - the controller
+                                                        # runs on the very cluster it
+                                                        # schedules agents into
+        skipTlsVerify: false
+        jenkinsUrl: "http://jenkins.jenkins.svc.cluster.local:8080"
+        jenkinsTunnel: "jenkins-agent.jenkins.svc.cluster.local:50000"
+        containerCapStr: "2"     # at most 2 agent pods at once - matches the 2-node
+                                  # cluster capacity (see README trade-offs)
+        podLabels:
+          - key: "app.kubernetes.io/part-of"
+            value: "vmapp-cicd"
+        templates:
+          - name: "ci-agent"
+            label: "ci"
+            namespace: "jenkins"
+            serviceAccount: "jenkins-ci-agent"
+            idleMinutes: 0
+            podRetention: "never"     # deleted immediately when the build ends -
+                                       # nothing persists between builds
+            yaml: !include ci-agent-pod.yaml.tpl
+          - name: "cd-agent"
+            label: "cd"
+            namespace: "jenkins"
+            serviceAccount: "jenkins-cd-agent"
+            idleMinutes: 0
+            podRetention: "never"
+            yaml: !include cd-agent-pod.yaml.tpl
+
+# Jobs created directly by JCasC at controller boot/config-reload, from the
+# same Job DSL script also usable via the Jenkins CLI (scripts/create-jobs.sh)
+# for idempotent re-creation without a restart - one script, two invocation
+# paths, so there's nothing to keep in sync by hand.
+jobs:
+  - script: !include seed-job.groovy
+
+unclassified:
+  location:
+    url: "http://jenkins.jenkins.svc.cluster.local:8080/"

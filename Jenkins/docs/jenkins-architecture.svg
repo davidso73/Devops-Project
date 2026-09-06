@@ -1,0 +1,177 @@
+<svg viewBox="0 0 1360 1150" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#444"/>
+    </marker>
+    <marker id="arrow-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b46c1"/>
+    </marker>
+    <marker id="arrow-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#c05621"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1360" height="1150" fill="#ffffff"/>
+  <text x="680" y="26" text-anchor="middle" font-size="20" font-weight="700" fill="#111">Jenkins CI/CD - Code to Running Application (il-central-1)</text>
+  <text x="680" y="44" text-anchor="middle" font-size="11" fill="#555">Jenkins and the app run on the same EKS cluster, in separate namespaces with separate RBAC/IRSA - see README "Jenkins Security"</text>
+
+  <!-- Developer / GitHub -->
+  <rect x="90" y="64" width="200" height="44" rx="6" fill="#f2f2f2" stroke="#888"/>
+  <text x="190" y="88" text-anchor="middle" font-size="12" fill="#222">Developer: git push</text>
+
+  <rect x="90" y="140" width="200" height="60" rx="6" fill="#eef2ff" stroke="#4338ca"/>
+  <text x="190" y="162" text-anchor="middle" font-size="12" font-weight="700" fill="#312e81">GitHub: davidso73/Devops-Project</text>
+  <text x="190" y="178" text-anchor="middle" font-size="9" fill="#4338ca">webhook -&gt; POST /github-webhook/</text>
+
+  <line x1="190" y1="108" x2="190" y2="140" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Public ALB (Jenkins) -->
+  <rect x="90" y="230" width="200" height="50" rx="6" fill="#fde9c8" stroke="#b8860b"/>
+  <text x="190" y="250" text-anchor="middle" font-size="11" font-weight="700" fill="#5c4400">Jenkins ALB (public)</text>
+  <text x="190" y="264" text-anchor="middle" font-size="9" fill="#7a5b00">HTTP :80, SG restricted to GitHub IP ranges + 1 allow-listed IP</text>
+  <line x1="190" y1="200" x2="190" y2="230" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="205" y="218" font-size="9" fill="#444">webhook (real, push-triggered)</text>
+
+  <!-- User -> App ALB (top right) -->
+  <rect x="1080" y="64" width="200" height="44" rx="6" fill="#f2f2f2" stroke="#888"/>
+  <text x="1180" y="88" text-anchor="middle" font-size="12" fill="#222">Internet user (app)</text>
+  <rect x="1080" y="140" width="200" height="44" rx="6" fill="#fde9c8" stroke="#b8860b"/>
+  <text x="1180" y="164" text-anchor="middle" font-size="11" font-weight="700" fill="#5c4400">App ALB (public, HTTP)</text>
+  <line x1="1180" y1="108" x2="1180" y2="140" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- EKS Cluster boundary -->
+  <rect x="60" y="300" width="1240" height="900" rx="10" fill="#eef4fb" stroke="#2b6cb0" stroke-width="2"/>
+  <text x="75" y="322" font-size="13" font-weight="700" fill="#2b6cb0">EKS Cluster: vmapp-eks (shared - separate namespaces, separate RBAC/IRSA)</text>
+  <text x="75" y="338" font-size="10" fill="#2b6cb0">VPC dev-enviroment-vpc / dedicated node group + private subnets - see K8s phase diagram for full network detail</text>
+
+  <!-- Jenkins namespace -->
+  <rect x="90" y="352" width="580" height="530" rx="8" fill="#e6f7f0" stroke="#2f855a" stroke-width="2"/>
+  <text x="105" y="374" font-size="13" font-weight="700" fill="#22543d">Namespace: jenkins (never default)</text>
+
+  <!-- Controller -->
+  <rect x="110" y="388" width="260" height="110" rx="6" fill="#c9f2d8" stroke="#2f855a"/>
+  <text x="240" y="406" text-anchor="middle" font-size="11" font-weight="700" fill="#22543d">Jenkins Controller (jenkins-0)</text>
+  <text x="240" y="422" text-anchor="middle" font-size="9" fill="#22543d">StatefulSet, 1 constant pod</text>
+  <text x="240" y="436" text-anchor="middle" font-size="9" fill="#22543d">numExecutors: 0 - never runs a build</text>
+  <text x="240" y="450" text-anchor="middle" font-size="9" fill="#276749">SA: jenkins-controller - manages pods in "jenkins" ns only</text>
+  <text x="240" y="464" text-anchor="middle" font-size="9" fill="#276749">Config: JCasC ConfigMap (security realm, cloud, jobs)</text>
+  <text x="240" y="478" text-anchor="middle" font-size="9" fill="#276749">PVC: gp3-jenkins (JENKINS_HOME, Retain)</text>
+  <text x="240" y="492" text-anchor="middle" font-size="9" fill="#8a6d1a">image: jenkins/jenkins:2.541.3-lts-jdk17 (pinned)</text>
+
+  <!-- PVC box -->
+  <rect x="390" y="388" width="120" height="50" rx="6" fill="#d7f0e3" stroke="#2f855a" stroke-dasharray="3,2"/>
+  <text x="450" y="408" text-anchor="middle" font-size="9" font-weight="700" fill="#22543d">PVC</text>
+  <text x="450" y="422" text-anchor="middle" font-size="8" fill="#22543d">gp3-jenkins (EBS)</text>
+  <line x1="390" y1="413" x2="370" y2="440" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Service -->
+  <rect x="530" y="388" width="120" height="50" rx="6" fill="#d7f0e3" stroke="#2f855a" stroke-dasharray="3,2"/>
+  <text x="590" y="408" text-anchor="middle" font-size="9" font-weight="700" fill="#22543d">Service: jenkins</text>
+  <text x="590" y="422" text-anchor="middle" font-size="8" fill="#22543d">ClusterIP :8080</text>
+  <line x1="290" y1="280" x2="590" y2="388" stroke="#444" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <line x1="590" y1="438" x2="370" y2="443" stroke="#444" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- CI agent pod -->
+  <rect x="110" y="520" width="260" height="150" rx="6" fill="#fff7e6" stroke="#d69e2e"/>
+  <text x="240" y="538" text-anchor="middle" font-size="11" font-weight="700" fill="#5c4400">CI agent pod (ephemeral)</text>
+  <text x="240" y="553" text-anchor="middle" font-size="9" fill="#5c4400">created per build, deleted at the end</text>
+  <text x="240" y="568" text-anchor="middle" font-size="9" fill="#5c4400">containers: buildkit (rootless), tools</text>
+  <text x="240" y="582" text-anchor="middle" font-size="9" fill="#8a6d1a">SA: jenkins-ci-agent - NO k8s RBAC</text>
+  <text x="240" y="596" text-anchor="middle" font-size="9" fill="#8a6d1a">IRSA: ecr push (vmapp-* repos only)</text>
+  <text x="240" y="610" text-anchor="middle" font-size="9" fill="#7a5b00">test, lint, build, scan, tag, push</text>
+  <text x="240" y="624" text-anchor="middle" font-size="9" fill="#7a5b00">no docker.sock; workspace = emptyDir</text>
+  <text x="240" y="638" text-anchor="middle" font-size="9" fill="#7a5b00">securityContext: nonroot, cap-drop ALL</text>
+  <text x="240" y="652" text-anchor="middle" font-size="8" fill="#8a6d1a">image: ECR vmapp-ci-tools:v1.0.0</text>
+
+  <!-- CD agent pod -->
+  <rect x="400" y="520" width="260" height="150" rx="6" fill="#e6ecfa" stroke="#3949ab"/>
+  <text x="530" y="538" text-anchor="middle" font-size="11" font-weight="700" fill="#283593">CD agent pod (ephemeral)</text>
+  <text x="530" y="553" text-anchor="middle" font-size="9" fill="#283593">created per build, deleted at the end</text>
+  <text x="530" y="568" text-anchor="middle" font-size="9" fill="#283593">container: deploy-tools (kubectl + helm)</text>
+  <text x="530" y="582" text-anchor="middle" font-size="9" fill="#3949ab">SA: jenkins-cd-agent - RBAC in devops-app ONLY</text>
+  <text x="530" y="596" text-anchor="middle" font-size="9" fill="#3949ab">no IRSA, no build tooling at all</text>
+  <text x="530" y="610" text-anchor="middle" font-size="9" fill="#3949ab">deploy, rollout wait, verify, smoke test</text>
+  <text x="530" y="624" text-anchor="middle" font-size="9" fill="#3949ab">structurally cannot rebuild an image</text>
+  <text x="530" y="638" text-anchor="middle" font-size="9" fill="#3949ab">securityContext: nonroot, cap-drop ALL</text>
+  <text x="530" y="652" text-anchor="middle" font-size="8" fill="#3949ab">image: ECR vmapp-cd-tools:v1.0.0</text>
+
+  <line x1="240" y1="498" x2="240" y2="520" stroke="#c05621" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#arrow-orange)"/>
+  <line x1="370" y1="450" x2="530" y2="520" stroke="#c05621" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#arrow-orange)"/>
+  <text x="430" y="500" font-size="9" fill="#c05621" text-anchor="middle">Kubernetes plugin schedules agent pods (JNLP :50000)</text>
+
+  <!-- JCasC / plugins / jobs box -->
+  <rect x="110" y="690" width="550" height="80" rx="6" fill="#e5d8f7" stroke="#6b46c1"/>
+  <text x="125" y="708" font-size="10" font-weight="700" fill="#44337a">Config-as-code: jcasc/jenkins.yaml (security realm, k8s cloud, agent templates)</text>
+  <text x="125" y="723" font-size="10" font-weight="700" fill="#44337a">plugins.txt -&gt; controller.installPlugins (chart's own plugin-installer init container)</text>
+  <text x="125" y="738" font-size="10" font-weight="700" fill="#44337a">jobs/seed-job.groovy (Job DSL) -&gt; JCasC `jobs:` block at boot, and scripts/create-jobs.sh (Jenkins CLI) on demand</text>
+  <text x="125" y="753" font-size="9" fill="#553c9a">Creates: application-ci (Multibranch), application-cd (parameterized) - both from this one file</text>
+  <line x1="240" y1="690" x2="240" y2="498" stroke="#6b46c1" stroke-width="2" stroke-dasharray="3,2" marker-end="url(#arrow-purple)"/>
+
+  <!-- IRSA arrow from CI agent to IAM (outside diagram note) -->
+  <rect x="110" y="790" width="550" height="42" rx="6" fill="#fff" stroke="#999" stroke-dasharray="3,2"/>
+  <text x="125" y="807" font-size="9" fill="#555">NetworkPolicy (jenkins ns): default-deny ingress; controller reachable from ALB (:8080) + agents (:50000 JNLP) only;</text>
+  <text x="125" y="820" font-size="9" fill="#555">agent pods accept NO inbound traffic at all - they only ever initiate connections outward.</text>
+
+  <!-- devops-app namespace -->
+  <rect x="700" y="352" width="560" height="530" rx="8" fill="#fde2e2" stroke="#c53030" stroke-width="2"/>
+  <text x="715" y="374" font-size="13" font-weight="700" fill="#822727">Namespace: devops-app (the application - see K8s phase for full detail)</text>
+
+  <rect x="720" y="392" width="240" height="90" rx="6" fill="#fbd5d5" stroke="#c53030"/>
+  <text x="840" y="410" text-anchor="middle" font-size="11" font-weight="700" fill="#822727">vmapp-frontend / backend / worker</text>
+  <text x="840" y="426" text-anchor="middle" font-size="9" fill="#822727">Deployments, Services, Ingress/ALB</text>
+  <text x="840" y="442" text-anchor="middle" font-size="9" fill="#822727">(created by Helm chart - K8s/helm/my-app)</text>
+  <text x="840" y="458" text-anchor="middle" font-size="9" fill="#822727">image tag = exactly what CI built and CD deployed</text>
+  <text x="840" y="472" text-anchor="middle" font-size="8" fill="#822727">RDS / S3 / SQS / SNS - external, shared (see K8s diagram)</text>
+
+  <line x1="530" y1="670" x2="840" y2="392" stroke="#3949ab" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="700" y="600" font-size="9" fill="#3949ab" text-anchor="middle" transform="rotate(-31 700,600)">helm upgrade --install (CD ServiceAccount token -&gt; k8s API)</text>
+
+  <line x1="1180" y1="184" x2="1180" y2="392" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="1180" y1="392" x2="960" y2="437" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ECR box -->
+  <rect x="990" y="700" width="260" height="90" rx="8" fill="#f0f0f0" stroke="#888"/>
+  <text x="1120" y="720" text-anchor="middle" font-size="11" font-weight="700" fill="#333">ECR</text>
+  <text x="1120" y="736" text-anchor="middle" font-size="9" fill="#555">vmapp-frontend/backend/worker</text>
+  <text x="1120" y="750" text-anchor="middle" font-size="9" fill="#555">vmapp-ci-tools / vmapp-cd-tools</text>
+  <text x="1120" y="764" text-anchor="middle" font-size="9" fill="#777">immutable tags, scan-on-push</text>
+  <text x="1120" y="778" text-anchor="middle" font-size="8" fill="#777">nodes pull agent + app images from here</text>
+
+  <line x1="370" y1="600" x2="990" y2="740" stroke="#6b46c1" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
+  <text x="700" y="700" font-size="9" fill="#6b46c1" text-anchor="middle">CI agent pushes (IRSA: ecr:PutImage on vmapp-* repos only)</text>
+
+  <line x1="990" y1="745" x2="960" y2="460" stroke="#444" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <text x="1000" y="600" font-size="9" fill="#444" text-anchor="middle" transform="rotate(90 1000,600)">nodes pull image (node IAM role)</text>
+
+  <!-- Boundary note -->
+  <text x="75" y="870" font-size="10" fill="#555">EKS cluster boundary ends here - everything below is external to the cluster</text>
+
+  <rect x="960" y="900" width="220" height="60" rx="8" fill="#e2f6e8" stroke="#2f855a"/>
+  <text x="1070" y="922" text-anchor="middle" font-size="11" font-weight="700" fill="#22543d">GitHub webhook config</text>
+  <text x="1070" y="938" text-anchor="middle" font-size="9" fill="#276749">managed via `gh api` at install time</text>
+  <text x="1070" y="950" text-anchor="middle" font-size="8" fill="#276749">payload secret from jenkins-admin-secret</text>
+
+  <!-- Legend -->
+  <rect x="75" y="1000" width="14" height="14" fill="#e6f7f0" stroke="#2f855a"/>
+  <text x="95" y="1011" font-size="10" fill="#333">jenkins namespace</text>
+  <rect x="230" y="1000" width="14" height="14" fill="#fde2e2" stroke="#c53030"/>
+  <text x="250" y="1011" font-size="10" fill="#333">devops-app namespace</text>
+  <rect x="420" y="1000" width="14" height="14" fill="#fde9c8" stroke="#b8860b"/>
+  <text x="440" y="1011" font-size="10" fill="#333">Public-facing (ALB)</text>
+  <rect x="600" y="1000" width="14" height="14" fill="#e5d8f7" stroke="#6b46c1"/>
+  <text x="620" y="1011" font-size="10" fill="#333">Config/JCasC/credential boundary</text>
+
+  <line x1="75" y1="1032" x2="105" y2="1032" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="111" y="1036" font-size="10" fill="#333">app/network traffic</text>
+  <line x1="280" y1="1032" x2="310" y2="1032" stroke="#888" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <text x="316" y="1036" font-size="10" fill="#333">AWS API / image pull</text>
+  <line x1="480" y1="1032" x2="510" y2="1032" stroke="#c05621" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#arrow-orange)"/>
+  <text x="516" y="1036" font-size="10" fill="#333">Jenkins controller -&gt; dynamic agent pod</text>
+  <line x1="780" y1="1032" x2="810" y2="1032" stroke="#6b46c1" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
+  <text x="816" y="1036" font-size="10" fill="#333">IRSA (ECR push) / JCasC config source</text>
+
+  <text x="75" y="1070" font-size="10" fill="#555">Security boundaries: public = both ALBs only (Jenkins ALB restricted to GitHub IP ranges + 1 allow-listed IP; app ALB open HTTP);</text>
+  <text x="75" y="1086" font-size="10" fill="#555">internal = namespace-scoped RBAC/IRSA and NetworkPolicy between jenkins and devops-app; private = node group subnets (no public IP).</text>
+  <text x="75" y="1104" font-size="10" fill="#555">CD identifies to the destination cluster via the jenkins-cd-agent ServiceAccount's own projected token - no kubeconfig, no static credential,</text>
+  <text x="75" y="1120" font-size="10" fill="#555">since Jenkins and the app share the same cluster's API server.</text>
+</svg>

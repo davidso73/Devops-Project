@@ -33,3 +33,7 @@ output "irsa_worker_role_arn" {
 output "irsa_lbc_role_arn" {
   value = aws_iam_role.irsa_lbc.arn
 }
+
+output "irsa_jenkins_ci_role_arn" {
+  value = aws_iam_role.irsa_jenkins_ci.arn
+}

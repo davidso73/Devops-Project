@@ -1,0 +1,14 @@
+# Dedicated StorageClass for Jenkins' PVC, using the EBS CSI driver (see
+# K8s/terraform/ebs-csi.tf) rather than the cluster's default "gp2" class,
+# which uses the legacy in-tree provisioner the node role has no permissions
+# for - a PVC on gp2 would hang Pending indefinitely.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3-jenkins
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true

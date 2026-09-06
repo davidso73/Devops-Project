@@ -1,0 +1,167 @@
+// CD: deploy an already-built, already-pushed image tag. Never builds an
+// image and never changes application code - the "cd" agent pod
+// (agent-pods/cd-agent-pod.yaml) only has kubectl + helm, nothing capable of
+// building one. Authenticates to the destination cluster via the
+// jenkins-cd-agent ServiceAccount's own projected token (RBAC scoped to
+// devops-app only - see rbac/cd-agent-rbac.yaml) - no kubeconfig file, no
+// static credential, nothing passed in from outside the pod.
+pipeline {
+    agent { label 'cd' }
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()   // prevents two overlapping deploys to the same environment;
+                                     // see README "Concurrency" for how this scales to multiple environments
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+    }
+
+    parameters {
+        string(name: 'IMAGE_TAG', defaultValue: '', description: 'Commit-SHA tag produced by application-ci. "latest" is rejected.')
+        string(name: 'TARGET_NAMESPACE', defaultValue: 'devops-app', description: 'Destination namespace - must be on the allow-list below.')
+        string(name: 'CI_BUILD_NUMBER', defaultValue: '', description: 'application-ci build number that produced IMAGE_TAG (traceability).')
+        string(name: 'GIT_COMMIT_SHA', defaultValue: '', description: 'Git commit SHA that produced IMAGE_TAG (traceability).')
+    }
+
+    environment {
+        REGISTRY        = '832767338129.dkr.ecr.il-central-1.amazonaws.com'
+        ALLOWED_NAMESPACES = 'devops-app'   // only namespace this identity's RBAC can even reach -
+                                             // this check just fails fast with a clear message instead
+                                             // of letting the API server reject it opaquely later
+        RELEASE_NAME    = 'vmapp-app'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+                container('deploy-tools') {
+                    sh 'echo "Deploying commit ${GIT_COMMIT_SHA:-unknown} (CI build #${CI_BUILD_NUMBER:-unknown}) as tag ${IMAGE_TAG}"'
+                }
+            }
+        }
+
+        stage('Validate input') {
+            steps {
+                script {
+                    if (!params.IMAGE_TAG?.trim()) {
+                        error("IMAGE_TAG is required.")
+                    }
+                    if (params.IMAGE_TAG.trim().toLowerCase() == 'latest') {
+                        error("IMAGE_TAG 'latest' is not accepted - deploy a specific commit-SHA tag.")
+                    }
+                    if (!(params.IMAGE_TAG ==~ /^[a-fA-F0-9]{7,40}$/)) {
+                        error("IMAGE_TAG '${params.IMAGE_TAG}' doesn't look like a commit SHA.")
+                    }
+                    if (!env.ALLOWED_NAMESPACES.split(' ').contains(params.TARGET_NAMESPACE)) {
+                        error("Namespace '${params.TARGET_NAMESPACE}' is not on the allow-list (${env.ALLOWED_NAMESPACES}).")
+                    }
+                    currentBuild.description = "tag=${params.IMAGE_TAG} ns=${params.TARGET_NAMESPACE} " +
+                        "by=${currentBuild.getBuildCauses()[0]?.userId ?: currentBuild.getBuildCauses()[0]?.shortDescription} " +
+                        "ci_build=${params.CI_BUILD_NUMBER} commit=${params.GIT_COMMIT_SHA}"
+                }
+            }
+        }
+
+        stage('Manifest validation') {
+            steps {
+                container('deploy-tools') {
+                    sh '''
+                        set -e
+                        helm lint K8s/helm/my-app
+                        helm template $RELEASE_NAME K8s/helm/my-app \
+                            --set image.tag=$IMAGE_TAG \
+                            --namespace $TARGET_NAMESPACE > /dev/null
+                        echo "helm lint + template OK"
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                container('deploy-tools') {
+                    sh '''
+                        set -e
+                        helm upgrade --install $RELEASE_NAME K8s/helm/my-app \
+                            --namespace $TARGET_NAMESPACE \
+                            --set image.tag=$IMAGE_TAG \
+                            --wait --timeout 5m
+                    '''
+                }
+            }
+        }
+
+        stage('Rollout') {
+            steps {
+                container('deploy-tools') {
+                    sh '''
+                        set -e
+                        for d in vmapp-frontend vmapp-backend vmapp-worker; do
+                            kubectl rollout status deployment/$d -n $TARGET_NAMESPACE --timeout=180s
+                        done
+                    '''
+                }
+            }
+        }
+
+        stage('Verify') {
+            steps {
+                container('deploy-tools') {
+                    sh '''
+                        set -e
+                        echo "=== Running images (must all end in :$IMAGE_TAG) ==="
+                        kubectl get pods -n $TARGET_NAMESPACE -o jsonpath='{range .items[*]}{.metadata.name}{"\\t"}{.spec.containers[0].image}{"\\n"}{end}'
+
+                        MISMATCH=$(kubectl get pods -n $TARGET_NAMESPACE -o jsonpath='{.items[*].spec.containers[0].image}' \
+                            | tr ' ' '\\n' | grep -v ":$IMAGE_TAG" || true)
+                        if [ -n "$MISMATCH" ]; then
+                            echo "Pod(s) not running the expected tag: $MISMATCH"
+                            exit 1
+                        fi
+                    '''
+                }
+            }
+        }
+
+        stage('Smoke test') {
+            steps {
+                container('deploy-tools') {
+                    sh '''
+                        set -e
+                        ALB=$(kubectl get ingress vmapp-ingress -n $TARGET_NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+                        echo "Smoke testing http://$ALB/"
+                        for i in $(seq 1 12); do
+                            CODE=$(curl -s -o /dev/null -w "%{http_code}" -m 5 "http://$ALB/" || echo 000)
+                            if [ "$CODE" = "200" ] || [ "$CODE" = "302" ]; then
+                                echo "Smoke test passed: HTTP $CODE"
+                                exit 0
+                            fi
+                            sleep 5
+                        done
+                        echo "Smoke test failed: app never returned 200/302 through the ALB"
+                        exit 1
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+        failure {
+            container('deploy-tools') {
+                sh '''
+                    echo "=== Recent events in $TARGET_NAMESPACE (most useful for diagnosing the failure) ==="
+                    kubectl get events -n $TARGET_NAMESPACE --sort-by=.metadata.creationTimestamp | tail -30 || true
+
+                    echo ""
+                    echo "=== Rollback: run this to return to the previous working release ==="
+                    echo "helm rollback $RELEASE_NAME -n $TARGET_NAMESPACE"
+                    echo "(add a specific revision number from: helm history $RELEASE_NAME -n $TARGET_NAMESPACE)"
+                '''
+            }
+        }
+    }
+}

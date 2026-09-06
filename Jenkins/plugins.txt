@@ -1,0 +1,27 @@
+# Plugin set for this project - this list of NAMES is the pinned, reproducible
+# part: exactly these plugins, no more, no less, every time. Versions are
+# deliberately left to jenkins-plugin-cli's own dependency resolver against
+# Jenkins 2.541.3, after two different attempts at hand-pinning every
+# transitive version independently both produced unresolvable dependency
+# conflicts (jenkins-plugin-cli fails hard on any mismatch, unlike older
+# tooling that only warned) - and a version set verified working with one
+# plugin list broke the moment a plugin was added or removed, since the
+# "working" versions of credentials-binding/junit/antisamy-markup-formatter
+# were only compatible in combination with the exact other plugins present
+# at the time. A resolver-selected, mutually-consistent set for a pinned
+# Jenkins core version + a pinned plugin NAME list is the actually-reliable
+# reproducibility guarantee here - see README "Trade-offs" for the full story.
+configuration-as-code
+kubernetes
+workflow-aggregator
+git
+github
+job-dsl
+credentials-binding
+matrix-auth
+junit
+timestamper
+ws-cleanup
+pipeline-utility-steps
+pipeline-stage-view
+antisamy-markup-formatter

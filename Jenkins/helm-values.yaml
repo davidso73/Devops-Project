@@ -1,0 +1,94 @@
+# Values for the official `jenkins/jenkins` Helm chart. Install command,
+# exact chart/image versions documented in scripts/install-jenkins.sh and
+# the README - both pinned, never `latest`.
+controller:
+  image:
+    repository: "jenkins/jenkins"
+    tag: "2.541.3-lts-jdk17"
+
+  # The Kubernetes plugin schedules dynamic agent pods; the controller
+  # itself runs zero build/deploy executors (set in JCasC, jenkins.numExecutors: 0).
+  #
+  # Plugins are installed via the chart's own, well-supported mechanism
+  # (its built-in init container runs `jenkins-plugin-cli` against this
+  # list). plugins.txt remains the single, human-readable source of truth -
+  # install-jenkins.sh generates the installPlugins list below from it on
+  # every run via an extra `-f` values file, so plugins.txt is still what
+  # you edit, not this array directly.
+  installPlugins: []   # overridden at install time - see install-jenkins.sh
+
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "768Mi"
+    limits:
+      cpu: "1"
+      memory: "1536Mi"
+
+  livenessProbe:
+    httpGet: { path: "/login", port: 8080 }
+    initialDelaySeconds: 90
+    periodSeconds: 20
+    failureThreshold: 6
+  readinessProbe:
+    httpGet: { path: "/login", port: 8080 }
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    failureThreshold: 6
+
+  containerSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false   # JENKINS_HOME itself must stay writable (plugins, job configs, build history)
+    capabilities:
+      drop: ["ALL"]
+    seccompProfile:
+      type: RuntimeDefault
+
+  podSecurityContextOverride:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+
+
+  JCasC:
+    defaultConfig: false
+    configMapName: "jenkins-casc-config"   # pre-built by install-jenkins.sh - see that script
+    securityRealm: ""
+    authorizationStrategy: ""
+
+  containerEnv:
+    - name: JENKINS_ADMIN_USER
+      valueFrom: { secretKeyRef: { name: jenkins-admin-secret, key: JENKINS_ADMIN_USER } }
+    - name: JENKINS_ADMIN_PASSWORD
+      valueFrom: { secretKeyRef: { name: jenkins-admin-secret, key: JENKINS_ADMIN_PASSWORD } }
+
+persistence:
+  enabled: true
+  storageClass: "gp3-jenkins"
+  size: "10Gi"
+  # reclaimPolicy is set on the StorageClass itself (Retain) - see storageclass.yaml -
+  # so JENKINS_HOME survives even an accidental `helm uninstall`.
+
+# Top-level (not nested under controller:) - this is the chart's real schema
+# for the controller's own ServiceAccount, confirmed via `helm show values`.
+serviceAccount:
+  create: false
+  name: jenkins-controller   # see rbac/jenkins-controller-rbac.yaml - namespace-scoped, not cluster-admin
+
+serviceAccountAgent:
+  create: false
+
+agent:
+  enabled: false   # dynamic agents come entirely from the Kubernetes cloud in
+                    # JCasC (jcasc/jenkins.yaml), not this chart's own default
+                    # agent pod template.
+
+networkPolicy:
+  enabled: false   # this project's own NetworkPolicy manifests (see network-policy.yaml)
+                    # are applied separately so their intent is explicit and reviewable,
+                    # rather than generated implicitly by the chart.
+
+serviceType: ClusterIP   # public access is via the Ingress (ingress.yaml), not a
+                          # chart-managed LoadBalancer Service - see README "Network and exposure"

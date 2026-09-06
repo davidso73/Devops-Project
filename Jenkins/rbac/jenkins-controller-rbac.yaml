@@ -1,0 +1,60 @@
+# The Jenkins controller's own permissions - scoped ONLY to the jenkins
+# namespace, and ONLY to what the Kubernetes plugin needs to launch/manage
+# dynamic agent pods. Explicitly NOT cluster-admin, NOT able to touch
+# devops-app or any other namespace, and NOT able to deploy anything - the
+# controller itself never builds or deploys (see README "RBAC and
+# permissions" for the full rationale table).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jenkins-controller
+  namespace: jenkins
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: jenkins-controller-role
+  namespace: jenkins
+rules:
+  # Create/manage the dynamic agent pods the Kubernetes plugin launches per build.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "delete", "get", "list", "watch", "update", "patch"]
+  # Stream agent logs back into the Jenkins build console.
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get", "list", "watch"]
+  # The Kubernetes plugin execs into agent pods to attach the JNLP/command channel.
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+  # Read-only: the plugin checks events for scheduling/pull failures to surface in build logs.
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+  # The chart's own config-reload sidecar watches the JCasC ConfigMap for
+  # changes and triggers a live reload - confirmed by inspecting the chart's
+  # own auto-generated role (jenkins-casc-reload) while wiring this up.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  # Read-only: the chart's agent-scheduling role also includes this: the
+  # Kubernetes plugin can check PVC status for any per-agent storage,
+  # though this project's agents don't use one (ephemeral emptyDir only).
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jenkins-controller-rolebinding
+  namespace: jenkins
+subjects:
+  - kind: ServiceAccount
+    name: jenkins-controller
+    namespace: jenkins
+roleRef:
+  kind: Role
+  name: jenkins-controller-role
+  apiGroup: rbac.authorization.k8s.io

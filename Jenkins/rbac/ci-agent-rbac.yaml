@@ -1,0 +1,17 @@
+# CI agent identity. Deliberately carries NO Kubernetes RBAC at all - no
+# Role/RoleBinding is granted to this ServiceAccount anywhere in the
+# cluster. CI builds/tests/scans/pushes images; it has no business talking
+# to the Kubernetes API, so it simply can't - if a compromised or buggy CI
+# pipeline tried to run `kubectl apply` against devops-app, the API server
+# would reject it outright (no permissions bound to this identity).
+#
+# Its only real permission is AWS-side, via IRSA (the eks.amazonaws.com/role-arn
+# annotation below), scoped to ECR push on exactly the 3 app repos - see
+# K8s/terraform/jenkins-irsa.tf.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jenkins-ci-agent
+  namespace: jenkins
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::832767338129:role/vmapp-jenkins-ci-role

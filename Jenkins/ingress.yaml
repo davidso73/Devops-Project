@@ -1,0 +1,41 @@
+# Internet-facing ALB - required so a real GitHub webhook can reach Jenkins
+# (a ClusterIP-only Service can't receive one). "Not open to all of the
+# internet" is enforced at the security-group layer instead of by omitting
+# public exposure entirely: see scripts/install-jenkins.sh, which builds this
+# ALB's security group from GitHub's published webhook IP ranges
+# (api.github.com/meta) plus one specific allow-listed IP for interactive UI
+# access (the same IP already used elsewhere in this AWS account for RDS
+# access). HTTP, not HTTPS - documented gap, same as the app's own Ingress
+# (no domain/ACM certificate available in this account) - see README
+# "Network and exposure" for the real fix if this needed to go further.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jenkins-ingress
+  namespace: jenkins
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/group.name: jenkins-alb
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    alb.ingress.kubernetes.io/healthcheck-path: /login
+    # Without this annotation the LB Controller auto-creates its own
+    # frontend security group open to 0.0.0.0/0. SECURITY_GROUP_ID_PLACEHOLDER
+    # is substituted by install-jenkins.sh with a security group it builds
+    # from GitHub's published webhook IP ranges (api.github.com/meta) plus
+    # one allow-listed IP for interactive UI access - see that script and
+    # README "Network and exposure".
+    alb.ingress.kubernetes.io/security-groups: SECURITY_GROUP_ID_PLACEHOLDER
+    alb.ingress.kubernetes.io/manage-backend-security-group-rules: "false"
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: jenkins
+                port:
+                  number: 8080

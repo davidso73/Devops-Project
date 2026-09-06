@@ -1,0 +1,68 @@
+# CD agent identity: the ServiceAccount lives in the jenkins namespace (that's
+# where the agent pod actually runs), but the Role/RoleBinding granting it
+# permissions live in devops-app - RoleBindings can reference a subject from
+# a different namespace than the Role itself, which is exactly how this
+# stays scoped to "only devops-app, nothing else" without needing a
+# ClusterRole. This is how the CD pipeline identifies itself to the
+# destination cluster: no kubeconfig, no static token - just this
+# ServiceAccount's projected, auto-rotated pod token, presented to the same
+# cluster's own API server.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jenkins-cd-agent
+  namespace: jenkins
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: jenkins-cd-deploy-role
+  namespace: devops-app
+rules:
+  # Exactly what `helm upgrade --install` + `kubectl rollout status` need,
+  # and nothing else: no delete on anything except what Helm itself manages
+  # as part of a release, no access to other resource types.
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps", "serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get", "list"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  # Needed because Helm stores each release's state as a Secret in the
+  # target namespace ("sh.helm.release.v1.<name>.v<revision>") - there is no
+  # way to scope RBAC to only Helm's own secrets by name, since the names
+  # are generated per-release/revision. This is an inherent Helm requirement,
+  # not a deliberate widening: it also means this identity is technically
+  # able to read the app's own vmapp-secrets Secret. Documented explicitly
+  # in the README rather than left implicit.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "create", "update", "patch"]
+  # Read-only: confirms devops-app is the intended target before deploying,
+  # and nothing else - this identity has no permissions in any other namespace.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jenkins-cd-deploy-rolebinding
+  namespace: devops-app
+subjects:
+  - kind: ServiceAccount
+    name: jenkins-cd-agent
+    namespace: jenkins
+roleRef:
+  kind: Role
+  name: jenkins-cd-deploy-role
+  apiGroup: rbac.authorization.k8s.io

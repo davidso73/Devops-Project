@@ -1,0 +1,194 @@
+// CI: test, lint, build, scan, tag, push. Never deploys - there is no
+// stage in this file that touches the Kubernetes API in any way, and the
+// jenkins-ci-agent ServiceAccount it runs under has no RBAC to do so even
+// if a stage tried. Runs entirely on the "ci" dynamic agent pod (see
+// agent-pods/ci-agent-pod.yaml) - never on the controller.
+//
+// No kubeconfig, credential, token, or password value appears anywhere in
+// this file: ECR auth comes from the pod's IRSA identity (vmapp-jenkins-ci-role),
+// resolved automatically inside the "tools" container - nothing is passed in.
+pipeline {
+    agent { label 'ci' }
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+    }
+
+    environment {
+        // Non-secret, transferred by environment - not credentials.
+        AWS_REGION      = 'il-central-1'
+        REGISTRY        = '832767338129.dkr.ecr.il-central-1.amazonaws.com'
+        SERVICES        = 'frontend backend worker'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+                script {
+                    env.GIT_COMMIT_SHORT = sh(script: 'git rev-parse --short=12 HEAD', returnStdout: true).trim()
+                    env.IMAGE_TAG = env.GIT_COMMIT_SHORT   // monovalent tag - commit SHA, never "latest"
+                }
+                container('tools') {
+                    sh '''
+                        echo "Commit:      $(git rev-parse HEAD)"
+                        echo "Branch:      ${BRANCH_NAME:-unknown}"
+                        echo "Build:       #${BUILD_NUMBER}"
+                        echo "Image tag:   ${IMAGE_TAG}"
+                    '''
+                }
+            }
+        }
+
+        stage('Validate') {
+            steps {
+                container('tools') {
+                    sh '''
+                        set -e
+                        for svc in $SERVICES; do
+                            test -f "app/$svc/Dockerfile" || { echo "Missing app/$svc/Dockerfile"; exit 1; }
+                        done
+                        test -f app/backend/requirements.txt
+                        test -f app/worker/requirements.txt
+                        echo "Project structure OK"
+                    '''
+                }
+            }
+        }
+
+        stage('Lint') {
+            steps {
+                container('tools') {
+                    sh 'flake8 --config=.flake8 app/backend app/worker'
+                }
+            }
+        }
+
+        stage('Test') {
+            steps {
+                container('tools') {
+                    sh '''
+                        cd app/backend
+                        python -m pytest tests/ --junitxml=../../test-results.xml -v
+                    '''
+                }
+            }
+            post {
+                always {
+                    junit 'test-results.xml'   // published and shown in Jenkins regardless of pass/fail
+                }
+            }
+        }
+
+        stage('Determine changed services') {
+            steps {
+                container('tools') {
+                    script {
+                        def diffBase = sh(
+                            script: 'git rev-parse HEAD~1 2>/dev/null || echo ""',
+                            returnStdout: true
+                        ).trim()
+                        def changed
+                        if (diffBase) {
+                            changed = sh(script: "git diff --name-only ${diffBase} HEAD", returnStdout: true).trim()
+                        } else {
+                            changed = ''   // first commit on this branch - build everything
+                        }
+                        def services = []
+                        for (svc in env.SERVICES.split(' ')) {
+                            if (!diffBase || changed.contains("app/${svc}/")) {
+                                services << svc
+                            }
+                        }
+                        if (services.isEmpty()) {
+                            services = env.SERVICES.split(' ') as List   // no app/ changes detected - be safe, build all
+                        }
+                        env.CHANGED_SERVICES = services.join(' ')
+                        echo "Building: ${env.CHANGED_SERVICES}"
+                    }
+                }
+            }
+        }
+
+        stage('Build, Scan, Tag, Push') {
+            steps {
+                container('tools') {
+                    // ECR auth via this pod's IRSA identity - no static registry
+                    // password anywhere. Written to the shared workspace volume
+                    // (mounted in both containers) so the buildkit container can
+                    // read it too.
+                    sh '''
+                        set -e
+                        mkdir -p .docker
+                        TOKEN=$(aws ecr get-login-password --region "$AWS_REGION")
+                        AUTH=$(printf "AWS:%s" "$TOKEN" | base64 -w0)
+                        cat > .docker/config.json <<EOF
+{"auths":{"$REGISTRY":{"auth":"$AUTH"}}}
+EOF
+                    '''
+                }
+                container('buildkit') {
+                    sh '''
+                        set -e
+                        export DOCKER_CONFIG="$(pwd)/.docker"
+                        for svc in $CHANGED_SERVICES; do
+                            echo "=== Building app/$svc -> $REGISTRY/vmapp-$svc:$IMAGE_TAG ==="
+                            buildctl build \
+                                --frontend dockerfile.v0 \
+                                --local context="app/$svc" \
+                                --local dockerfile="app/$svc" \
+                                --output type=image,name=$REGISTRY/vmapp-$svc:$IMAGE_TAG,push=true
+                        done
+                    '''
+                }
+                container('tools') {
+                    sh '''
+                        set -e
+                        for svc in $CHANGED_SERVICES; do
+                            echo "=== Scan status: vmapp-$svc:$IMAGE_TAG ==="
+                            aws ecr describe-image-scan-findings \
+                                --repository-name "vmapp-$svc" --image-id imageTag=$IMAGE_TAG \
+                                --region "$AWS_REGION" \
+                                --query "imageScanStatus.status" --output text || echo "scan pending"
+
+                            echo "=== Digest: vmapp-$svc:$IMAGE_TAG ==="
+                            aws ecr describe-images \
+                                --repository-name "vmapp-$svc" --image-ids imageTag=$IMAGE_TAG \
+                                --region "$AWS_REGION" \
+                                --query "imageDetails[0].imageDigest" --output text
+                        done
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        // Cleanup runs even on failure - workspace AND any credential material
+        // written during the build (the .docker/config.json above) are removed
+        // with it, since the whole ephemeral workspace volume is discarded when
+        // the pod is deleted right after this.
+        always {
+            container('tools') {
+                sh 'rm -rf .docker || true'
+            }
+            cleanWs()
+        }
+        success {
+            script {
+                if (env.BRANCH_NAME == 'main') {
+                    build job: 'application-cd', wait: false, parameters: [
+                        string(name: 'IMAGE_TAG', value: env.IMAGE_TAG),
+                        string(name: 'TARGET_NAMESPACE', value: 'devops-app'),
+                        string(name: 'CI_BUILD_NUMBER', value: env.BUILD_NUMBER),
+                        string(name: 'GIT_COMMIT_SHA', value: env.GIT_COMMIT_SHORT),
+                    ]
+                } else {
+                    echo "Not main branch (${env.BRANCH_NAME}) - CD not triggered automatically."
+                }
+            }
+        }
+    }
+}

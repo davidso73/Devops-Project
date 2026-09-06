@@ -638,3 +638,413 @@ Every container's `securityContext` sets:
   since none of that tooling runs natively on the Windows machine driving
   this project - the same fix pattern used for Ansible earlier in this
   project, applied again here.
+
+---
+
+# Jenkins CI/CD on EKS
+
+Jenkins runs on the **same EKS cluster** as the app, in its own `Jenkins/`
+folder and its own dedicated `jenkins` namespace - never `default`, and
+never sharing a namespace with `devops-app`. Two separate, declarative
+pipelines cover the whole path from a `git push` to a verified deployment:
+**CI** (test, lint, build, scan, tag, push - never deploys) and **CD**
+(deploy, verify, rollback - never builds). Everything is created from code:
+Helm values, JCasC, RBAC, and the two Jenkins jobs themselves.
+
+![Jenkins CI/CD architecture diagram](Jenkins/docs/jenkins-architecture.svg)
+
+## Architecture and EKS
+
+- **Controller**: a single, constant pod (`jenkins-0`, a StatefulSet from
+  the official chart) in the `jenkins` namespace, backed by a `PersistentVolumeClaim`
+  (`gp3-jenkins` StorageClass, EBS CSI driver) so `JENKINS_HOME` survives
+  pod restarts. It runs **zero build/deploy executors**
+  (`jenkins.numExecutors: 0` in JCasC) - every build/deploy runs on a
+  dynamic agent pod instead.
+- **Dynamic agents**: the Kubernetes plugin creates one pod per build, from
+  one of two pod templates (`agent-pods/ci-agent-pod.yaml.tpl`,
+  `agent-pods/cd-agent-pod.yaml.tpl`), and deletes it the moment the build ends
+  (`podRetention: never`). Nothing persists between builds - no cache, no
+  leftover state, no secrets on disk after the pod is gone.
+- **Same cluster as the app, separate everything else**: Jenkins reuses the
+  `vmapp-eks` cluster from the K8s phase (own node group, own VPC) but has
+  its own namespace, its own ServiceAccounts/RBAC, its own IRSA roles, and
+  its own ECR repos (`vmapp-ci-tools`, `vmapp-cd-tools` for the agent images
+  themselves) - it shares infrastructure, not permissions, with the app.
+- **How the CD pipeline identifies itself to the destination cluster**: the
+  `jenkins-cd-agent` pod runs under a Kubernetes ServiceAccount of the same
+  name, which the API server authenticates via its own short-lived,
+  auto-rotated projected token - the same in-cluster auth mechanism any pod
+  uses to talk to its own API server, scoped down by RBAC to exactly
+  `devops-app` (see `rbac/cd-agent-rbac.yaml`). There is no kubeconfig file,
+  no static bearer token, and nothing "logged in" from outside the cluster -
+  if this pipeline targeted a *different* cluster, it would need a real
+  credential (a kubeconfig Jenkins credential), which is exactly why keeping
+  Jenkins on the same cluster as the app was the simpler, more secure choice
+  here.
+- **Security boundary**: the `jenkins` namespace and `devops-app` namespace
+  are two separate NetworkPolicy/RBAC domains on the same cluster. A
+  compromised Jenkins agent pod cannot reach anything in `devops-app` at the
+  network level unless its own NetworkPolicy explicitly allows it (it
+  doesn't - see `network-policy.yaml`), and the CD agent's RBAC is the
+  *only* identity anywhere in this project with write access to
+  `devops-app`, and it's a Kubernetes-native identity, not a portable
+  credential that could leak outside the cluster.
+
+## Prerequisites and tool versions
+
+All pinned, none `latest`:
+
+| Tool | Version | Where it's pinned |
+|---|---|---|
+| Jenkins Helm chart | `5.9.56` | `scripts/install-jenkins.sh` |
+| Jenkins controller image | `jenkins/jenkins:2.541.3-lts-jdk17` | `helm-values.yaml` |
+| Plugins | see `plugins.txt` | installed via the chart's plugin-installer, generated from this file |
+| BuildKit (CI agent) | `moby/buildkit:v0.17.1-rootless` | `agent-pods/ci-agent-pod.yaml.tpl` |
+| kubectl / Helm (CD agent) | `v1.31.0` / `v3.15.4` | `agent-images/cd-tools/Dockerfile` |
+| CI tools image | `flake8==7.1.1`, `pytest==8.3.3`, `awscli==1.36.7` | `agent-images/ci-tools/Dockerfile` |
+
+You'll also need: `kubectl` and `helm` pointed at `vmapp-eks` (the build host
+from the K8s phase already has both), and the EKS/ECR/Helm-chart phases
+already applied (this phase assumes `devops-app` and the 3 ECR app repos
+already exist).
+
+## Installing Jenkins from code
+
+```bash
+cd Jenkins/scripts
+bash install-jenkins.sh      # namespace, RBAC, storage, security group, secrets
+                              # (auto-generated on a clean install), JCasC, Helm install
+bash verify-jenkins.sh       # the exact checks in evidence.md
+bash create-jobs.sh          # creates/updates application-ci + application-cd (idempotent)
+```
+
+```bash
+bash configure-jenkins.sh    # re-applies JCasC (security realm, cloud, agent templates,
+                              # jobs) to an already-running controller, no restart needed
+bash uninstall-jenkins.sh    # full teardown - see "Full cleanup" below
+```
+
+**One thing `install-jenkins.sh` can't do unattended:** the security group
+that restricts the Jenkins ALB (see "Network and exposure" below) needs
+`ec2:CreateSecurityGroup`/`ec2:AuthorizeSecurityGroupIngress`, which the
+build host's IAM role deliberately does not have (it's scoped to
+ECR + `eks:DescribeCluster` only - see `K8s/terraform/buildhost.tf`). Create
+it once from a role that does have EC2 permissions:
+
+```bash
+# same commands install-jenkins.sh would run itself, with EC2 permissions
+SG_ID=$(aws ec2 create-security-group --group-name jenkins-alb-sg \
+  --description "Jenkins ALB - GitHub webhook ranges + allow-listed UI access only" \
+  --vpc-id vpc-078790f7a168052e8 --region il-central-1 --query GroupId --output text)
+# then authorize port 80 from GitHub's ranges (api.github.com/meta) + your own IP - see install-jenkins.sh for the exact loop
+export JENKINS_ALB_SG_ID=$SG_ID   # pass it through so install-jenkins.sh skips the AWS calls entirely
+bash install-jenkins.sh
+```
+
+This is the one and only manual step in the whole install - everything else
+runs from `install-jenkins.sh` alone, including on a completely clean
+cluster (the recovery requirement this project's rubric asks for).
+
+## Creating the jobs and connecting to Git
+
+Both jobs are defined once, in `jobs/seed-job.groovy` (Job DSL), and created
+two ways from that single file - no copy-pasted job definitions to drift out
+of sync:
+
+1. **Automatically**, via JCasC's `jobs:` block (`jcasc/jenkins.yaml`) -
+   runs at controller boot/config-reload.
+2. **On demand**, via `scripts/create-jobs.sh` (Jenkins CLI) - idempotent,
+   safe to re-run any time without restarting the controller.
+
+- **`application-ci`** - a Multibranch Pipeline pointed at
+  `davidso73/Devops-Project` on GitHub, running `Jenkins/Jenkinsfile-ci`.
+  Triggered by a **real GitHub webhook** (configured below) with a 1-minute
+  SCM-poll as a fallback.
+- **`application-cd`** - a parameterized Pipeline running
+  `Jenkins/Jenkinsfile-cd`, taking `IMAGE_TAG`/`TARGET_NAMESPACE`/
+  `CI_BUILD_NUMBER`/`GIT_COMMIT_SHA` as parameters.
+
+**Wiring up the real webhook** (after `install-jenkins.sh` has an Ingress
+address):
+
+```bash
+ALB=$(kubectl get ingress jenkins-ingress -n jenkins -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+gh api repos/davidso73/Devops-Project/hooks -X POST \
+  -f name=web -F active=true \
+  -f "config[url]=http://$ALB/github-webhook/" \
+  -f "config[content_type]=json" \
+  -f "config[secret]=$(kubectl get secret jenkins-admin-secret -n jenkins -o jsonpath='{.data.GITHUB_WEBHOOK_SECRET}' | base64 -d)"
+```
+
+A `git push` to `main` after this should trigger `application-ci` within a
+few seconds (see `Jenkins/evidence.md` for a captured run).
+
+## Creating credentials and secrets (without exposing values)
+
+Only one Jenkins credential is actually needed in this design (see
+`credentials/credentials.example.yaml` for its shape) - the GitHub webhook
+shared secret, used to verify incoming payloads are really from GitHub. That
+short list is a direct consequence of the least-privilege design, not
+something trimmed separately: the repo is public (no clone credential), ECR
+auth is IRSA (no registry password), and cluster auth is the CD
+ServiceAccount's own token (no kubeconfig).
+
+The real secret (`credentials/secret.yaml`) is **auto-generated by
+`install-jenkins.sh`** on a clean install (random admin password + random
+webhook secret, printed once to the terminal) and is gitignored - it is
+never committed, and neither `jcasc/jenkins.yaml` nor either `Jenkinsfile-*`
+contains a literal value anywhere.
+
+**To replace a credential** (e.g. rotate the webhook secret): edit
+`credentials/secret.yaml` with a new value, `kubectl apply -f` it, then
+`bash scripts/configure-jenkins.sh` to make the running controller pick it
+up - no restart needed for the webhook secret; **the admin password does**
+need `kubectl rollout restart statefulset/jenkins -n jenkins` since it's
+consumed as a container env var at pod start, not re-read by a JCasC reload.
+
+**To disable an exposed credential**: rotate it immediately using the steps
+above (a new random value invalidates the old one instantly, since there's
+no external system depending on this specific secret's value - GitHub just
+gets told the new one). If a **GitHub token** were ever added later (e.g.
+for a private repo), disable it at `github.com/settings/tokens` first, then
+rotate the Jenkins credential referencing it.
+
+## Running CI
+
+```bash
+git add . && git commit -m "..." && git push origin main
+```
+
+Stages (see `Jenkinsfile-ci`): **Checkout** (prints commit SHA/branch/build
+number) -> **Validate** (Dockerfiles + requirements.txt present) ->
+**Lint** (`flake8`) -> **Test** (`pytest`, JUnit XML published via the
+`junit` step - visible as a test-results trend in Jenkins) -> **Determine
+changed services** (`git diff`, or all 3 on the first commit) -> **Build,
+Scan, Tag, Push** (BuildKit rootless builds each changed service, tags with
+the 12-char commit SHA - `latest` is never produced -  pushes to ECR via the
+CI agent's IRSA identity, then prints the ECR scan status and image digest
+for each). `post{always}` runs `cleanWs()` regardless of outcome, which also
+removes the ECR auth file written during the Build stage - nothing survives
+the pod being deleted. On success, if the branch is `main`, it triggers
+`application-cd` automatically with the new tag.
+
+## Running CD
+
+Parameters: `IMAGE_TAG` (required, rejected if empty/`latest`/not
+SHA-shaped), `TARGET_NAMESPACE` (must be on the in-file allow-list -
+currently just `devops-app`), `CI_BUILD_NUMBER` + `GIT_COMMIT_SHA`
+(traceability, filled in automatically when CI triggers it).
+
+Stages (see `Jenkinsfile-cd`): **Checkout** (the Helm chart, not app code) ->
+**Validate input** (also sets `currentBuild.description` to
+`tag=... ns=... by=... ci_build=... commit=...` - visible directly on the
+build's summary page in the Jenkins UI, satisfying "every deployment shows
+who/which version/where") -> **Manifest validation** (`helm lint` +
+`helm template`) -> **Deploy** (`helm upgrade --install`, `--set
+image.tag=$IMAGE_TAG`) -> **Rollout** (`kubectl rollout status` per
+Deployment) -> **Verify** (every running pod's image must end in
+`:$IMAGE_TAG`, or the build fails) -> **Smoke test** (polls the app's own
+ALB for an HTTP 200/302, matching how the app itself is verified in the K8s
+phase above).
+
+`disableConcurrentBuilds()` prevents two overlapping deploys to the same
+environment; scaling this to multiple real environments later would add a
+`lock("deploy-${params.TARGET_NAMESPACE}")` step instead, so concurrent
+deploys to *different* namespaces can still run in parallel.
+
+## Rollback
+
+Tested once (see `Jenkins/evidence.md` for the captured run): a failed
+deployment's `post{failure}` block prints the exact command, using Helm's
+own release history:
+
+```bash
+helm history vmapp-app -n devops-app        # find the revision to go back to
+helm rollback vmapp-app <revision> -n devops-app
+kubectl rollout status deployment/vmapp-backend -n devops-app   # confirm it recovered
+```
+
+## Behavior in failure cases
+
+- **CI fails** (lint/test/build/scan/push) -> the build is marked failed,
+  no image is pushed for a failing build, and `application-cd` is never
+  triggered (the `post{success}` block that triggers it doesn't run).
+- **Push to ECR fails** -> same as above; failure happens inside the Build
+  stage, before CD could ever be reached.
+- **CD fails before Deploy** (bad `IMAGE_TAG`, failed `helm lint`) -> no
+  `helm upgrade` ever runs, so the environment is untouched.
+- **Rollout or smoke test fails** -> the build is marked failed, recent
+  namespace events are dumped to the console
+  (`kubectl get events --sort-by=.metadata.creationTimestamp`), and the
+  exact rollback command is printed - see "Rollback" above.
+
+## What to focus on (from the project rubric)
+
+- **Reproducibility** - `install-jenkins.sh` alone rebuilds Jenkins, RBAC,
+  storage, and both jobs from nothing but this repo; `create-jobs.sh`
+  independently proves the jobs come from code, not manual UI clicks.
+- **Separation of concerns** - CI has no Kubernetes RBAC at all; CD has no
+  IRSA/registry-push permissions at all and its agent image has no build
+  tooling. Neither pipeline *can* do the other's job, not just "isn't
+  supposed to."
+- **Traceability** - every CD build's description shows the CI build number,
+  git commit, and target; every image is tagged with the commit SHA and its
+  ECR digest is printed in the CI build output.
+- **Security** - see the full chapter below; least-privilege RBAC/IRSA, no
+  secrets in files, no docker.sock, restricted network exposure.
+- **Operability** - failures dump events/logs and print the exact rollback
+  command; nothing fails silently.
+- **Documentation** - this section plus the two Jenkinsfiles' own comments
+  are meant to be enough to run this without asking anyone anything first.
+
+## Jenkins Security
+
+### RBAC and permissions
+
+| Identity | Where | Permissions | Why |
+|---|---|---|---|
+| `jenkins-controller` | `jenkins` ns | create/manage pods in `jenkins` only (`rbac/jenkins-controller-rbac.yaml`) | Just enough for the Kubernetes plugin to schedule agents - not cluster-admin, can't touch `devops-app` |
+| `jenkins-ci-agent` | `jenkins` ns | **no Kubernetes RBAC at all** | CI never deploys - it structurally cannot call the k8s API, not just "isn't supposed to" |
+| `jenkins-cd-agent` | `jenkins` ns (SA), RBAC granted in `devops-app` ns | get/create/update/patch on deployments/pods/services/ingresses/configmaps/secrets, get on namespaces/events (`rbac/cd-agent-rbac.yaml`) | Exactly what `helm upgrade` + `kubectl rollout status` need in exactly one namespace - no cluster-wide access, no other namespace |
+
+No identity in this project has cluster-admin. See `rbac/cd-agent-rbac.yaml`'s
+comments for why it also incidentally gets `secrets` access in `devops-app`
+(Helm stores release state as Secrets - an inherent Helm requirement, not a
+deliberate widening).
+
+**EKS Pod Identity note**: this project uses IRSA (the OIDC-based
+predecessor) rather than the newer EKS Pod Identity feature, for consistency
+with the app's own backend/worker IRSA roles set up in the K8s phase -
+functionally equivalent for this purpose, documented here since the
+instructor's rubric specifically calls out Pod Identity as the recommended
+approach.
+
+### Credentials and secrets
+
+Covered in detail above ("Creating credentials and secrets"). Summary:
+AWS access is IRSA (never a static key); cluster access is a ServiceAccount
+token (never a kubeconfig); the only actual Jenkins credential is the GitHub
+webhook secret; the admin/webhook secret file is gitignored and
+auto-generated, never committed with real values. Jenkins' own credential
+masking (standard behavior for `credentials()`/`withCredentials` bindings)
+would redact any credential if one were bound into a shell step - this
+project doesn't bind any into either Jenkinsfile at all, which is a stronger
+guarantee than masking: there's nothing there to leak in the first place.
+
+### Agent and container security
+
+- **No builds on the controller** - `numExecutors: 0`.
+- **No `docker.sock`** anywhere - the CI agent builds via BuildKit rootless
+  instead (see "Image Security" in the K8s phase above for why this option
+  was chosen over buildah/DinD - same reasoning applies here).
+- **`runAsNonRoot` + `allowPrivilegeEscalation: false`** on every container
+  in both agent pod templates and the controller itself.
+- **Capabilities**: `drop: ["ALL"]` everywhere.
+- **seccomp**: `RuntimeDefault` everywhere, with **one documented
+  exception** - the BuildKit container needs `Unconfined` because rootless
+  BuildKit creates a user namespace (the `unshare` syscall) to build images
+  without a privileged daemon, which the default profile blocks. This is a
+  minimal, specific, explained exception, not a blanket relaxation - every
+  other container in this project keeps the default profile.
+- **Read-only root filesystem**: the frontend app pod has it (see K8s
+  phase); Jenkins agents don't (their workspace itself needs to be
+  writable) but their workspace is an `emptyDir`, gone with the pod.
+- **Agent and controller images are pinned and scanned**: the controller
+  image is the official, actively-maintained `jenkins/jenkins` LTS release;
+  the two custom agent images (`vmapp-ci-tools`, `vmapp-cd-tools`) are built
+  from pinned base images, pushed to ECR with `scan_on_push` enabled - same
+  as every other image in this project (see K8s phase's real scan findings
+  for what that actually reports).
+
+### Network and exposure
+
+- Jenkins UI is **not open to all of the internet** - the ALB's security
+  group (`jenkins-alb-sg`) allows port 80 only from GitHub's published
+  webhook IP ranges (`api.github.com/meta`, re-fetched on every
+  `install-jenkins.sh` run) plus one specific allow-listed IP for
+  interactive access (the same IP already allow-listed elsewhere in this
+  AWS account for RDS access).
+- **HTTP, not HTTPS** - same documented gap as the app's own Ingress: no
+  domain name or ACM certificate exists in this account, so ACM can't issue
+  a trusted certificate. The real fix (a self-signed certificate imported
+  into ACM, which doesn't require domain ownership) is documented here as
+  the next step rather than implemented, to keep this phase's scope bounded
+  - everything else about the ALB (target-type ip, health checks) is
+  already set up to take an HTTPS listener with only an annotation added.
+- **Endpoints required**: GitHub (`github.com`, `api.github.com`, webhook
+  callback inbound from GitHub's ranges above), ECR
+  (`*.dkr.ecr.il-central-1.amazonaws.com`, outbound from the CI agent), and
+  the Kubernetes API (`https://<cluster>.eks.amazonaws.com`, outbound from
+  the CD agent - same endpoint the build host itself uses).
+- **NetworkPolicy** (`network-policy.yaml`, enforced via the same VPC CNI
+  native support used for the app): default-deny ingress in the `jenkins`
+  namespace; the controller is reachable only from the ALB's VPC-internal
+  path (port 8080) and from agent pods (port 50000, JNLP); agent pods accept
+  **no inbound traffic at all** - they only ever initiate connections
+  outward.
+
+## Full cleanup
+
+```bash
+cd Jenkins/scripts
+bash uninstall-jenkins.sh
+```
+
+Removes the Helm release, RBAC, Ingress, NetworkPolicy, ConfigMaps, Secret,
+and namespace - leaves the `jenkins-alb-sg` security group and
+`gp3-jenkins` StorageClass in place (cheap to keep, needed again on the next
+install) and, because the StorageClass's `reclaimPolicy` is `Retain`, the
+underlying EBS volume survives even a full uninstall unless deleted
+separately (the script prints the exact command). Does not touch
+`devops-app`, RDS, S3, SQS, SNS, or the EKS cluster itself - this only tears
+down what `Jenkins/` created.
+
+## Trade-offs and significant decisions
+
+- **BuildKit rootless** over buildah/DinD - no daemon, no privileged mode,
+  no `docker.sock`; the one cost is the documented `seccomp: Unconfined`
+  exception for that single container.
+- **HTTP, not HTTPS**, for the Jenkins ALB - no domain/ACM cert available;
+  mitigated by restricting the security group instead of by encryption.
+- **One combined Job-DSL source of truth**, applied via both JCasC (at
+  boot) and the Jenkins CLI (`create-jobs.sh`, idempotent) - satisfies the
+  "created by JCasC" / "seed job from the repository" / "CLI script"
+  requirements with one script instead of three independent
+  implementations that could drift out of sync with each other.
+- **A dedicated build/ops EC2 instance**, again, to run
+  `helm`/`kubectl`/`docker` - same constraint as the K8s and Ansible phases,
+  applied consistently.
+- **The Jenkins ALB security group can't be created by `install-jenkins.sh`
+  alone** - the build host's IAM role is deliberately minimal (ECR +
+  `eks:DescribeCluster` only) and doesn't include `ec2:CreateSecurityGroup`.
+  This is the one manual step in an otherwise fully from-code install,
+  documented explicitly above rather than silently widening that role's
+  permissions just to remove it.
+- **A custom `alb.ingress.kubernetes.io/security-groups` annotation replaces
+  the ALB's security groups outright**, including the AWS Load Balancer
+  Controller's own auto-managed "shared backend" SG that would otherwise let
+  the ALB reach the controller pod on its target port. Restricting the ALB's
+  *inbound* side (to GitHub's webhook ranges + one allow-listed IP) therefore
+  also requires one extra rule on the node security group, opening it to
+  *that* ALB SG on port 8080 - `install-jenkins.sh` creates this
+  automatically (`NODE_SG_ID` override available, same pattern as
+  `JENKINS_ALB_SG_ID`, for the same minimal-IAM-role reason).
+- **`!include` (JCasC's own file-inclusion tag) doesn't work with the
+  plugin/snakeyaml versions this project resolved to** (bare-name plugin
+  pinning - see `plugins.txt` above) - it's rejected outright
+  (`YAMLException: Invalid tag: !include`), not merely deprecated. Rather
+  than re-introduce version pinning to chase a compatible combination (the
+  exact problem bare-name pinning was adopted to avoid), `jenkins.yaml` keeps
+  `!include` in its source form for readability, and
+  `scripts/render-jcasc.py` inlines those references into a single flat YAML
+  document as literal block scalars before the ConfigMap is built - both
+  `install-jenkins.sh` and `configure-jenkins.sh` call it. A second, related
+  gotcha this surfaced: the chart's config-reload sidecar only syncs
+  ConfigMaps carrying a specific label (`jenkins-jenkins-config=true`), and
+  independently, JCasC's own directory scan treats every `.yaml`/`.yml` file
+  it finds as an independent config source - which is why the two pod
+  templates are named `*.yaml.tpl`, not `*.yaml` (a raw Kubernetes Pod
+  manifest parsed as a second top-level JCasC document throws a merge
+  conflict and silently aborts the *entire* reload, `jobs:` and
+  `unclassified:` included, well before ever reaching those sections).
