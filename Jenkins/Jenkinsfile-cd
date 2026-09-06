@@ -82,19 +82,22 @@ pipeline {
                 container('deploy-tools') {
                     sh '''
                         set -e
-                        # The Helm chart's own templates/namespace.yaml manages the
-                        # devops-app Namespace object as part of the release. That
-                        # namespace was first created by an earlier manual install
+                        # Every object this chart manages - the devops-app
+                        # Namespace itself, plus every Deployment/Service/
+                        # ConfigMap/ServiceAccount/NetworkPolicy/Ingress inside
+                        # it - was first created by an earlier manual install
                         # under a different release-name/namespace combination
-                        # (from the K8s phase, before this CD pipeline existed),
-                        # so Helm sees mismatched ownership annotations and refuses
-                        # to "adopt" it - confirmed live: "invalid ownership
-                        # metadata ... current value is 'default'". Aligning the
-                        # annotations to what THIS release expects is the
-                        # documented Helm fix for exactly this error; it only
-                        # touches metadata on a namespace that already exists,
-                        # never creates or deletes one (see rbac/cd-agent-rbac.yaml
-                        # - "patch" only, no "create"/"delete" on namespaces).
+                        # (from the K8s phase, before this CD pipeline existed).
+                        # Helm refuses to "adopt" any pre-existing object whose
+                        # ownership annotations point elsewhere - confirmed live,
+                        # one resource kind at a time, starting with the
+                        # Namespace itself and then NetworkPolicy "invalid
+                        # ownership metadata ... current value is 'default'".
+                        # Aligning annotations to what THIS release expects,
+                        # before every install, is the documented Helm fix -
+                        # idempotent, and scoped by RBAC to "patch" only on
+                        # exactly these kinds (rbac/cd-agent-rbac.yaml), never
+                        # create/delete.
                         kubectl annotate namespace $TARGET_NAMESPACE \
                             meta.helm.sh/release-name=$RELEASE_NAME \
                             meta.helm.sh/release-namespace=$TARGET_NAMESPACE \
@@ -102,6 +105,17 @@ pipeline {
                         kubectl label namespace $TARGET_NAMESPACE \
                             app.kubernetes.io/managed-by=Helm \
                             --overwrite
+                        for KIND in deployment service configmap serviceaccount networkpolicy ingress; do
+                            for NAME in $(kubectl get $KIND -n $TARGET_NAMESPACE -o name 2>/dev/null); do
+                                kubectl annotate $NAME -n $TARGET_NAMESPACE \
+                                    meta.helm.sh/release-name=$RELEASE_NAME \
+                                    meta.helm.sh/release-namespace=$TARGET_NAMESPACE \
+                                    --overwrite
+                                kubectl label $NAME -n $TARGET_NAMESPACE \
+                                    app.kubernetes.io/managed-by=Helm \
+                                    --overwrite
+                            done
+                        done
                         helm upgrade --install $RELEASE_NAME K8s/helm/my-app \
                             --namespace $TARGET_NAMESPACE \
                             --set image.tag=$IMAGE_TAG \
