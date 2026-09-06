@@ -1084,3 +1084,9 @@ down what `Jenkins/` created.
   manifest parsed as a second top-level JCasC document throws a merge
   conflict and silently aborts the *entire* reload, `jobs:` and
   `unclassified:` included, well before ever reaching those sections).
+- **BuildKit's default OCI manifest media type doesn't push to ECR** -
+  confirmed on the very first successful image build: every layer uploaded
+  fine, and only the final manifest `PUT` came back `400 Bad Request`. ECR's
+  registry API wants Docker v2 schema2 media types; `buildctl`'s `--output`
+  now passes `oci-mediatypes=false` explicitly rather than relying on
+  whatever the resolved BuildKit version defaults to.

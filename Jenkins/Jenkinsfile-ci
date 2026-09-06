@@ -145,11 +145,18 @@ EOF
                         export DOCKER_CONFIG="$(pwd)/.docker"
                         for svc in $CHANGED_SERVICES; do
                             echo "=== Building app/$svc -> $REGISTRY/vmapp-$svc:$IMAGE_TAG ==="
+                            # oci-mediatypes=false is required, not optional, against ECR:
+                            # BuildKit defaults to OCI manifest media types, and ECR's
+                            # registry API rejected that manifest with a bare
+                            # "400 Bad Request" on the PUT - confirmed live on the
+                            # first real push (image + layers uploaded fine, only the
+                            # final manifest commit failed). Docker v2 schema2 media
+                            # types push cleanly.
                             buildctl build \
                                 --frontend dockerfile.v0 \
                                 --local context="app/$svc" \
                                 --local dockerfile="app/$svc" \
-                                --output type=image,name=$REGISTRY/vmapp-$svc:$IMAGE_TAG,push=true
+                                --output type=image,name=$REGISTRY/vmapp-$svc:$IMAGE_TAG,push=true,oci-mediatypes=false
                         done
                     '''
                 }
