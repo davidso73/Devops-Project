@@ -87,26 +87,18 @@ pipeline {
             steps {
                 container('tools') {
                     script {
-                        def diffBase = sh(
-                            script: 'git rev-parse HEAD~1 2>/dev/null || echo ""',
-                            returnStdout: true
-                        ).trim()
-                        def changed
-                        if (diffBase) {
-                            changed = sh(script: "git diff --name-only ${diffBase} HEAD", returnStdout: true).trim()
-                        } else {
-                            changed = ''   // first commit on this branch - build everything
-                        }
-                        def services = []
-                        for (svc in env.SERVICES.split(' ')) {
-                            if (!diffBase || changed.contains("app/${svc}/")) {
-                                services << svc
-                            }
-                        }
-                        if (services.isEmpty()) {
-                            services = env.SERVICES.split(' ') as List   // no app/ changes detected - be safe, build all
-                        }
-                        env.CHANGED_SERVICES = services.join(' ')
+                        // Always build and push all three services under the one
+                        // commit-SHA tag, even when a commit only touches one of
+                        // them - NOT an optimization opportunity here. CD deploys
+                        // a single shared image.tag across all three Deployments
+                        // (see Jenkinsfile-cd / K8s/helm/my-app), so a tag with
+                        // only a partial image set is a broken, undeployable tag.
+                        // Confirmed live: a backend-only commit produced a tag
+                        // that had no frontend/worker image at all, and the very
+                        // next CD run hit ImagePullBackOff on both trying to pull
+                        // an image that was never pushed. A monovalent tag has to
+                        // mean "this exact tag is a complete, deployable set."
+                        env.CHANGED_SERVICES = env.SERVICES
                         echo "Building: ${env.CHANGED_SERVICES}"
                     }
                 }

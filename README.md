@@ -819,14 +819,20 @@ git add . && git commit -m "..." && git push origin main
 Stages (see `Jenkinsfile-ci`): **Checkout** (prints commit SHA/branch/build
 number) -> **Validate** (Dockerfiles + requirements.txt present) ->
 **Lint** (`flake8`) -> **Test** (`pytest`, JUnit XML published via the
-`junit` step - visible as a test-results trend in Jenkins) -> **Determine
-changed services** (`git diff`, or all 3 on the first commit) -> **Build,
-Scan, Tag, Push** (BuildKit rootless builds each changed service, tags with
-the 12-char commit SHA - `latest` is never produced -  pushes to ECR via the
-CI agent's IRSA identity, then prints the ECR scan status and image digest
-for each). `post{always}` runs `cleanWs()` regardless of outcome, which also
-removes the ECR auth file written during the Build stage - nothing survives
-the pod being deleted. On success, if the branch is `main`, it triggers
+`junit` step - visible as a test-results trend in Jenkins) -> **Build,
+Scan, Tag, Push** (BuildKit rootless builds **all three** services, tags
+with the 12-char commit SHA - `latest` is never produced - pushes to ECR via
+the CI agent's IRSA identity, then prints the ECR scan status and image
+digest for each). All three are built on every commit, even one that only
+touches a single service - a per-changed-service optimization was tried and
+removed after a real failure: CD deploys one shared `image.tag` across all
+three Deployments, and a tag built from only the changed service(s) is a
+tag with a missing image for the others, which broke the very next deploy
+with `ImagePullBackOff` (see README "Trade-offs"). `post{always}` runs
+`cleanWs()` regardless of outcome, which also removes the ECR auth file
+written during the Build stage - nothing survives the pod being deleted.
+On success, this job (which only ever tracks `main` - see "Trade-offs" for
+why it isn't Multibranch) always triggers
 `application-cd` automatically with the new tag.
 
 ## Running CD
@@ -1136,3 +1142,14 @@ down what `Jenkins/` created.
   this release before every `helm upgrade --install` - idempotent, and
   scoped by RBAC to `patch` only (`rbac/cd-agent-rbac.yaml`), never
   `create`/`delete`, on the one namespace CD is allowed to touch.
+- **A "only build the services that changed" optimization in CI was tried
+  and then removed** after it broke the very next CD deploy: a commit that
+  only touched `app/backend` produced a tag with a real `vmapp-backend`
+  image but no `vmapp-frontend`/`vmapp-worker` image at all under that tag.
+  Since CD deploys a single shared `image.tag` value across all three
+  Deployments (there's no per-service tag param - see "What to focus on:
+  Deployment/build/image/commit traceability"), that partial tag was
+  fundamentally undeployable - confirmed live via `ImagePullBackOff` citing
+  `... not found` for both missing images. A monovalent tag has to mean "a
+  complete, deployable set," so CI now builds and pushes all three services
+  on every commit, whether or not each one actually changed.
