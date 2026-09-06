@@ -120,14 +120,23 @@ pipeline {
                     // password anywhere. Written to the shared workspace volume
                     // (mounted in both containers) so the buildkit container can
                     // read it too.
+                    // set +x below is load-bearing, not stylistic: Jenkins' sh
+                    // step echoes every command with a "+ " prefix by default,
+                    // which would otherwise print the ECR token and the
+                    // base64'd auth string straight into the build console -
+                    // visible to every authenticated user under this project's
+                    // Job/Read permission. Confirmed live (the very first real
+                    // build leaked the token this way) before this fix.
                     sh '''
                         set -e
                         mkdir -p .docker
+                        set +x
                         TOKEN=$(aws ecr get-login-password --region "$AWS_REGION")
                         AUTH=$(printf "AWS:%s" "$TOKEN" | base64 -w0)
                         cat > .docker/config.json <<EOF
 {"auths":{"$REGISTRY":{"auth":"$AUTH"}}}
 EOF
+                        set -x
                     '''
                 }
                 container('buildkit') {

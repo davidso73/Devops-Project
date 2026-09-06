@@ -53,9 +53,24 @@ spec:
         # kernel intersects the binary's capabilities with the process's
         # bounding set) - confirmed live: the same "operation not permitted"
         # persisted with allowPrivilegeEscalation: true alone until SETUID/
-        # SETGID were added back here. Every other capability stays dropped.
+        # SETGID were added back here.
+        #
+        # SYS_ADMIN is also required, confirmed live by a second failure one
+        # layer in: rootlesskit's own unshare(CLONE_NEWUSER) succeeds with
+        # just SETUID/SETGID (buildkitd itself starts fine), but each `RUN`
+        # step's nested runc process needs to mount its own /proc, which
+        # needs CAP_SYS_ADMIN - and a capability the bounding set excludes
+        # is unavailable even to "root" inside a freshly created user
+        # namespace (the namespace grants a full capability set *within
+        # itself*, but that grant is still capped by the inherited bounding
+        # set). This capability's blast radius stays confined to this one
+        # container's own user+mount namespace - it is not host-level
+        # SYS_ADMIN - but it is the real, necessary cost of rootless image
+        # builds under a bounding-set-restricted pod, documented here rather
+        # than glossed over. Every OTHER container in this project keeps a
+        # fully empty, unmodified capability set.
         capabilities:
-          add: ["SETUID", "SETGID"]
+          add: ["SETUID", "SETGID", "SYS_ADMIN"]
           drop: ["ALL"]
         # Rootless BuildKit creates a user namespace (unshare) to build
         # images without a privileged daemon or docker.sock - the default

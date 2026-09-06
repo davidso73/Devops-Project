@@ -926,11 +926,19 @@ Covered in detail above ("Creating credentials and secrets"). Summary:
 AWS access is IRSA (never a static key); cluster access is a ServiceAccount
 token (never a kubeconfig); the only actual Jenkins credential is the GitHub
 webhook secret; the admin/webhook secret file is gitignored and
-auto-generated, never committed with real values. Jenkins' own credential
-masking (standard behavior for `credentials()`/`withCredentials` bindings)
-would redact any credential if one were bound into a shell step - this
-project doesn't bind any into either Jenkinsfile at all, which is a stronger
-guarantee than masking: there's nothing there to leak in the first place.
+auto-generated, never committed with real values. Neither Jenkinsfile binds
+a Jenkins `credentials()`/`withCredentials` secret, so there's no
+credential-plugin masking to rely on for those - but IRSA still hands the CI
+agent a genuinely short-lived secret at runtime (the ECR authorization
+token), and that one **did** leak into the build console on the first real
+run: Jenkins' `sh` step echoes every command with a `+` prefix by default,
+so `TOKEN=$(aws ecr get-login-password ...)` printed the token in plain
+text - visible to anyone with `Job/Read` (everyone authenticated, per this
+project's matrix authorization). Fixed with `set +x` around exactly the
+lines that touch the token/auth string in `Jenkinsfile-ci`, `set -x`
+restored immediately after. Left in here, not edited out of this section,
+as a reminder that "no bound credential" and "nothing to leak" are not the
+same claim - anything fetched at runtime needs the same scrutiny.
 
 ### Agent and container security
 
@@ -951,13 +959,24 @@ guarantee than masking: there's nothing there to leak in the first place.
   rootless BuildKit's is the narrowest one available (no `docker.sock`, no
   privileged mode, no host root) - see immediately below for why that
   option was chosen over buildah/DinD in the first place.
-- **Capabilities**: `drop: ["ALL"]` everywhere, with one addition on top for
-  the same BuildKit container - `add: ["SETUID", "SETGID"]`, confirmed
-  necessary live: a dropped-to-empty capability bounding set blocks
-  `newuidmap`/`newgidmap` from gaining those capabilities on exec even with
-  `allowPrivilegeEscalation: true` (the kernel intersects a setuid binary's
-  capabilities with the process's bounding set). Every other capability -
-  on every container, including this one - stays dropped.
+- **Capabilities**: `drop: ["ALL"]` everywhere, with three additions on top
+  for the same BuildKit container - `add: ["SETUID", "SETGID", "SYS_ADMIN"]`,
+  each confirmed necessary live, not assumed:
+  - `SETUID`/`SETGID` - a dropped-to-empty capability bounding set blocks
+    `newuidmap`/`newgidmap` from gaining those capabilities on exec even
+    with `allowPrivilegeEscalation: true` (the kernel intersects a setuid
+    binary's capabilities with the process's bounding set).
+  - `SYS_ADMIN` - one layer deeper: rootlesskit's own user-namespace setup
+    succeeds with just the two above, but each Dockerfile `RUN` step's
+    nested build process needs to mount its own `/proc`, which needs
+    `CAP_SYS_ADMIN` - and a capability excluded from the bounding set stays
+    unavailable even to "root" inside a freshly created user namespace, since
+    the namespace's own capability grant is still capped by what the
+    process's bounding set allows. This capability's effect stays confined
+    to this one container's own user+mount namespace, not host-level
+    `SYS_ADMIN`, but it is a real, necessary cost of rootless image builds
+    here - not glossed over.
+  Every other capability, on every other container, stays dropped.
 - **seccomp**: `RuntimeDefault` everywhere, with **one documented
   exception** - the BuildKit container needs `Unconfined` because rootless
   BuildKit creates a user namespace (the `unshare` syscall) to build images
