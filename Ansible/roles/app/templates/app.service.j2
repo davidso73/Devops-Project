@@ -1,0 +1,14 @@
+[Unit]
+Description=vmapp {{ service_name }}
+After=network.target
+
+[Service]
+EnvironmentFile=/etc/vmapp/{{ service_name }}.env
+WorkingDirectory={{ app_dir }}/{{ service_name }}
+ExecStart={{ app_dir }}/{{ service_name }}/venv/bin/{{ app_exec }}
+Restart=always
+User={{ app_user }}
+Group={{ app_group }}
+
+[Install]
+WantedBy=multi-user.target

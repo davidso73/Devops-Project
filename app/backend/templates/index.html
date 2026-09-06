@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1>Choose a VM</h1>
+  <form method="post">
+    <label for="vm_name">VM Name</label>
+    <input type="text" id="vm_name" name="vm_name" placeholder="e.g. my-test-vm" required>
+
+    <fieldset>
+      <legend>Architecture</legend>
+      {% for arch in architectures %}
+        <label style="font-weight: normal;">
+          <input type="radio" name="architecture" value="{{ arch }}" {% if loop.first %}checked{% endif %}>
+          {{ arch }}
+        </label>
+      {% endfor %}
+    </fieldset>
+
+    <fieldset>
+      <legend>Instance Type</legend>
+      {% for itype in instance_types %}
+        <label style="font-weight: normal;">
+          <input type="radio" name="instance_type" value="{{ itype }}" {% if loop.first %}checked{% endif %}>
+          {{ itype }}
+        </label>
+      {% endfor %}
+    </fieldset>
+
+    <button type="submit">Submit</button>
+  </form>
+
+  <h2>Summary of all requests</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>User</th>
+        <th>VM Name</th>
+        <th>Architecture</th>
+        <th>Instance Type</th>
+        <th>Status</th>
+        <th>Created</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for username, vm_name, architecture, instance_type, status, created_at in rows %}
+        <tr>
+          <td>{{ username }}</td>
+          <td>{{ vm_name }}</td>
+          <td>{{ architecture }}</td>
+          <td>{{ instance_type }}</td>
+          <td class="status-{{ status }}">{{ status }}</td>
+          <td>{{ created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6">No requests yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

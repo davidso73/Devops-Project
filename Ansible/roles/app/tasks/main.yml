@@ -1,0 +1,82 @@
+---
+# Backend/worker have no internet access (private subnet, VPC endpoints only
+# cover S3/SQS/SNS - see ../../terraform/endpoints.tf), so dependencies can't
+# be pip-installed directly on them. Instead: build an offline wheelhouse on
+# the control node (which does have internet - frontend, in our setup) once
+# per play, then copy it out to each host alongside the app code.
+
+- name: Build the offline dependency wheelhouse on the control node (once)
+  delegate_to: localhost
+  become: false
+  run_once: true
+  ansible.builtin.command:
+    cmd: >
+      python3 -m pip download
+      --dest {{ playbook_dir }}/.build/wheelhouse
+      --platform manylinux2014_x86_64
+      --python-version 3.11
+      --abi cp311
+      --implementation cp
+      --only-binary=:all:
+      -r {{ playbook_dir }}/../app/backend/requirements.txt
+      -r {{ playbook_dir }}/../app/worker/requirements.txt
+    creates: "{{ playbook_dir }}/.build/wheelhouse/.done"
+
+- name: Mark the wheelhouse build as done
+  delegate_to: localhost
+  become: false
+  run_once: true
+  ansible.builtin.file:
+    path: "{{ playbook_dir }}/.build/wheelhouse/.done"
+    state: touch
+    mode: "0644"
+  changed_when: false
+
+- name: Copy the application code to the server
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../app/{{ service_name }}/"
+    dest: "{{ app_dir }}/{{ service_name }}/"
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+    mode: preserve
+
+- name: Copy the offline dependency wheelhouse to the server
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/.build/wheelhouse/"
+    dest: "{{ app_dir }}/wheelhouse/"
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+    mode: preserve
+
+- name: Create the venv and install dependencies (offline, no PyPI access needed)
+  become_user: "{{ app_user }}"
+  ansible.builtin.pip:
+    requirements: "{{ app_dir }}/{{ service_name }}/requirements.txt"
+    virtualenv: "{{ app_dir }}/{{ service_name }}/venv"
+    virtualenv_command: /usr/bin/python3.11 -m venv
+    extra_args: "--no-index --find-links={{ app_dir }}/wheelhouse"
+
+- name: Template the environment file (RDS endpoint, DB creds, S3/SQS/SNS, region)
+  ansible.builtin.template:
+    src: env.j2
+    dest: "/etc/vmapp/{{ service_name }}.env"
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+    mode: "0600"
+  notify: restart app service
+
+- name: Template the systemd unit
+  ansible.builtin.template:
+    src: app.service.j2
+    dest: "/etc/systemd/system/vmapp-{{ service_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart app service
+
+- name: Enable and start the service
+  ansible.builtin.systemd:
+    name: "vmapp-{{ service_name }}"
+    daemon_reload: true
+    enabled: true
+    state: started

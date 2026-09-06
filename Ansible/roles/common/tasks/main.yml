@@ -1,0 +1,46 @@
+---
+- name: Update all packages
+  ansible.builtin.dnf:
+    name: "*"
+    state: latest
+    update_cache: true
+
+- name: Install basic packages
+  ansible.builtin.dnf:
+    name:
+      - python3.11
+      - python3.11-pip
+      - unzip
+      - tar
+      - vim
+    state: present
+
+- name: Create dedicated group to run the application
+  ansible.builtin.group:
+    name: "{{ app_group }}"
+    system: true
+
+- name: Create dedicated user to run the application
+  ansible.builtin.user:
+    name: "{{ app_user }}"
+    group: "{{ app_group }}"
+    system: true
+    shell: /sbin/nologin
+    home: "{{ app_dir }}"
+    create_home: true
+
+- name: Create the application directory
+  ansible.builtin.file:
+    path: "{{ app_dir }}"
+    state: directory
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+    mode: "0755"
+
+- name: Create the app configuration directory (env files)
+  ansible.builtin.file:
+    path: /etc/vmapp
+    state: directory
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+    mode: "0750"

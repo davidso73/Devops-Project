@@ -1,0 +1,56 @@
+namespace: devops-app
+
+image:
+  # Filled in with real ECR repo URLs after `terraform apply` + image push.
+  # Always a fixed tag - never `latest` (see README's Image Security section).
+  frontendRepository: 832767338129.dkr.ecr.il-central-1.amazonaws.com/vmapp-frontend
+  backendRepository: 832767338129.dkr.ecr.il-central-1.amazonaws.com/vmapp-backend
+  workerRepository: 832767338129.dkr.ecr.il-central-1.amazonaws.com/vmapp-worker
+  tag: v1.0.0
+
+replicas:
+  frontend: 2
+  backend: 2
+  worker: 1
+
+resources:
+  frontend:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 200m, memory: 128Mi }
+  backend:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+  worker:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 300m, memory: 256Mi }
+
+# IRSA role ARNs - filled in from `terraform output irsa_backend_role_arn` /
+# `irsa_worker_role_arn` in K8s/terraform. Frontend deliberately has none.
+serviceAccounts:
+  frontend:
+    name: vmapp-frontend
+  backend:
+    name: vmapp-backend
+    irsaRoleArn: "arn:aws:iam::832767338129:role/vmapp-eks-backend-role"
+  worker:
+    name: vmapp-worker
+    irsaRoleArn: "arn:aws:iam::832767338129:role/vmapp-eks-worker-role"
+
+# Non-secret app configuration (-> ConfigMap). Real secrets (DB password,
+# Flask session key) are NOT here - see templates/secret.example.yaml and
+# the README's "How to create the real secret" section.
+config:
+  awsRegion: il-central-1
+  s3Bucket: nginx-content-832767338129-il-central-1-an
+  sqsQueueUrl: https://sqs.il-central-1.amazonaws.com/832767338129/vmapp-requests-queue
+  snsTopicArn: arn:aws:sns:il-central-1:832767338129:vmapp-notifications
+  dbHost: vmapp-db.crwyuessaqej.il-central-1.rds.amazonaws.com
+  dbName: vmappdb
+  dbUser: vmappadmin
+
+secretName: vmapp-secrets
+
+ingress:
+  # No domain/ACM certificate in this account (see README's Ingress Security
+  # section) - HTTP-only via a public ALB, documented as a stated trade-off.
+  groupName: vmapp-alb

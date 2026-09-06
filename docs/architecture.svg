@@ -1,0 +1,186 @@
+<svg viewBox="0 0 1280 1040" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#444"/>
+    </marker>
+    <marker id="arrow-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#c05621"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1280" height="1040" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="640" y="30" text-anchor="middle" font-size="20" font-weight="700" fill="#111">VM Chooser - AWS Architecture (il-central-1)</text>
+  <text x="640" y="46" text-anchor="middle" font-size="11" fill="#555">Terraform provisions every boxed resource below (tagged [T]); Ansible configures the software on the 3 EC2 boxes (tagged [A])</text>
+
+  <!-- Ansible control-node arrows: frontend configures backend/worker over SSH -->
+  <path d="M 320,270 Q 470,195 610,270" fill="none" stroke="#c05621" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#arrow-orange)"/>
+  <text x="465" y="200" font-size="10" fill="#c05621" text-anchor="middle">Ansible over SSH (common + app roles)</text>
+  <path d="M 360,268 Q 700,175 990,268" fill="none" stroke="#c05621" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#arrow-orange)"/>
+  <text x="700" y="180" font-size="10" fill="#c05621" text-anchor="middle">Ansible over SSH (common + app roles)</text>
+
+  <!-- Internet user -->
+  <rect x="565" y="55" width="150" height="40" rx="6" fill="#f2f2f2" stroke="#888"/>
+  <text x="640" y="80" text-anchor="middle" font-size="13" fill="#222">Internet user</text>
+  <line x1="640" y1="95" x2="640" y2="130" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="655" y="118" font-size="11" fill="#444">HTTP :80</text>
+
+  <!-- IGW -->
+  <rect x="560" y="130" width="160" height="36" rx="6" fill="#fde9c8" stroke="#b8860b"/>
+  <text x="640" y="153" text-anchor="middle" font-size="12" fill="#5c4400">Internet Gateway</text>
+  <line x1="640" y1="166" x2="640" y2="196" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- VPC box -->
+  <rect x="60" y="196" width="1160" height="620" rx="10" fill="#eef4fb" stroke="#2b6cb0" stroke-width="2"/>
+  <text x="80" y="220" font-size="14" font-weight="700" fill="#2b6cb0">VPC: dev-enviroment-vpc (10.0.0.0/16)</text>
+
+  <!-- Public subnet -->
+  <rect x="90" y="235" width="330" height="150" rx="8" fill="#fff7e6" stroke="#d69e2e"/>
+  <text x="105" y="255" font-size="12" font-weight="700" fill="#8a6d1a">Public subnet - il-central-1a (10.0.1.0/24)</text>
+  <rect x="130" y="270" width="250" height="90" rx="6" fill="#ffe9b3" stroke="#b8860b"/>
+  <rect x="338" y="274" width="18" height="16" rx="3" fill="#2b6cb0"/>
+  <text x="347" y="286" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">T</text>
+  <rect x="358" y="274" width="18" height="16" rx="3" fill="#c05621"/>
+  <text x="367" y="286" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">A</text>
+  <text x="255" y="295" text-anchor="middle" font-size="13" font-weight="700" fill="#5c4400">vmapp-frontend</text>
+  <text x="255" y="313" text-anchor="middle" font-size="11" fill="#5c4400">nginx (reverse proxy)</text>
+  <text x="255" y="329" text-anchor="middle" font-size="11" fill="#5c4400">public IP - only internet-facing box</text>
+  <text x="255" y="347" text-anchor="middle" font-size="10" fill="#7a5b00">sg: dev-enviroment-ec2-sg (22/80 from 0.0.0.0/0)</text>
+
+  <!-- arrow frontend -> backend -->
+  <line x1="380" y1="315" x2="470" y2="315" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="385" y="308" font-size="10" fill="#444">proxy_pass :8000</text>
+
+  <!-- Private subnet A -->
+  <rect x="470" y="235" width="330" height="150" rx="8" fill="#eafaf1" stroke="#2f855a"/>
+  <text x="485" y="255" font-size="12" font-weight="700" fill="#22543d">Private subnet A - il-central-1a (10.0.11.0/24)</text>
+  <rect x="510" y="270" width="250" height="90" rx="6" fill="#c9f2d8" stroke="#2f855a"/>
+  <rect x="718" y="274" width="18" height="16" rx="3" fill="#2b6cb0"/>
+  <text x="727" y="286" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">T</text>
+  <rect x="738" y="274" width="18" height="16" rx="3" fill="#c05621"/>
+  <text x="747" y="286" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">A</text>
+  <text x="635" y="295" text-anchor="middle" font-size="13" font-weight="700" fill="#22543d">vmapp-backend</text>
+  <text x="635" y="313" text-anchor="middle" font-size="11" fill="#22543d">Flask + gunicorn :8000</text>
+  <text x="635" y="329" text-anchor="middle" font-size="11" fill="#22543d">no public IP</text>
+  <text x="635" y="347" text-anchor="middle" font-size="10" fill="#276749">sg: vmapp-internal-sg</text>
+
+  <!-- Private subnet B -->
+  <rect x="850" y="235" width="330" height="150" rx="8" fill="#eafaf1" stroke="#2f855a"/>
+  <text x="865" y="255" font-size="12" font-weight="700" fill="#22543d">Private subnet B - il-central-1b (10.0.12.0/24)</text>
+  <rect x="890" y="270" width="250" height="90" rx="6" fill="#c9f2d8" stroke="#2f855a"/>
+  <rect x="1098" y="274" width="18" height="16" rx="3" fill="#2b6cb0"/>
+  <text x="1107" y="286" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">T</text>
+  <rect x="1118" y="274" width="18" height="16" rx="3" fill="#c05621"/>
+  <text x="1127" y="286" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">A</text>
+  <text x="1015" y="295" text-anchor="middle" font-size="13" font-weight="700" fill="#22543d">vmapp-worker</text>
+  <text x="1015" y="313" text-anchor="middle" font-size="11" fill="#22543d">SQS consumer (Python)</text>
+  <text x="1015" y="329" text-anchor="middle" font-size="11" fill="#22543d">no public IP</text>
+  <text x="1015" y="347" text-anchor="middle" font-size="10" fill="#276749">sg: vmapp-internal-sg</text>
+
+  <!-- self-reference note between backend/worker -->
+  <line x1="800" y1="315" x2="850" y2="315" stroke="#888" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <text x="765" y="240" font-size="10" fill="#666"> </text>
+
+  <!-- RDS -->
+  <rect x="620" y="430" width="280" height="80" rx="8" fill="#e6ecfa" stroke="#3949ab"/>
+  <rect x="878" y="434" width="18" height="16" rx="3" fill="#2b6cb0"/>
+  <text x="887" y="446" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">T</text>
+  <text x="760" y="455" text-anchor="middle" font-size="13" font-weight="700" fill="#283593">RDS PostgreSQL</text>
+  <text x="760" y="472" text-anchor="middle" font-size="11" fill="#283593">vmapp-db (db.t3.micro)</text>
+  <text x="760" y="488" text-anchor="middle" font-size="10" fill="#3949ab">subnet group: private A + B - not publicly accessible</text>
+
+  <!-- backend -> RDS -->
+  <line x1="655" y1="360" x2="700" y2="430" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="600" y="400" font-size="10" fill="#444">SQL :5432</text>
+  <!-- worker -> RDS (status update) -->
+  <line x1="1000" y1="360" x2="850" y2="440" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="900" y="400" font-size="10" fill="#444">UPDATE status :5432</text>
+
+  <!-- VPC endpoints column -->
+  <rect x="470" y="560" width="710" height="130" rx="8" fill="#f5eefc" stroke="#6b46c1"/>
+  <text x="485" y="580" font-size="12" font-weight="700" fill="#553c9a">VPC Endpoints (private subnets - no NAT Gateway)</text>
+
+  <rect x="500" y="595" width="200" height="70" rx="6" fill="#e5d8f7" stroke="#6b46c1"/>
+  <rect x="678" y="599" width="18" height="16" rx="3" fill="#2b6cb0"/>
+  <text x="687" y="611" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">T</text>
+  <text x="600" y="618" text-anchor="middle" font-size="12" font-weight="700" fill="#44337a">S3 Gateway Endpoint</text>
+  <text x="600" y="635" text-anchor="middle" font-size="10" fill="#44337a">free - also serves dnf repos</text>
+
+  <rect x="730" y="595" width="200" height="70" rx="6" fill="#e5d8f7" stroke="#6b46c1"/>
+  <rect x="908" y="599" width="18" height="16" rx="3" fill="#2b6cb0"/>
+  <text x="917" y="611" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">T</text>
+  <text x="830" y="618" text-anchor="middle" font-size="12" font-weight="700" fill="#44337a">SQS Interface Endpoint</text>
+  <text x="830" y="635" text-anchor="middle" font-size="10" fill="#44337a">backend send / worker receive</text>
+
+  <rect x="960" y="595" width="200" height="70" rx="6" fill="#e5d8f7" stroke="#6b46c1"/>
+  <rect x="1138" y="599" width="18" height="16" rx="3" fill="#2b6cb0"/>
+  <text x="1147" y="611" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">T</text>
+  <text x="1060" y="618" text-anchor="middle" font-size="12" font-weight="700" fill="#44337a">SNS Interface Endpoint</text>
+  <text x="1060" y="635" text-anchor="middle" font-size="10" fill="#44337a">backend + worker publish</text>
+
+  <!-- backend -> sqs endpoint -->
+  <line x1="700" y1="360" x2="820" y2="595" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+  <!-- backend -> sns endpoint -->
+  <line x1="720" y1="360" x2="1000" y2="595" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+  <!-- worker -> sqs endpoint -->
+  <line x1="990" y1="360" x2="850" y2="595" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+  <!-- worker -> sns endpoint -->
+  <line x1="1040" y1="360" x2="1080" y2="595" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+  <!-- worker -> s3 endpoint -->
+  <line x1="920" y1="360" x2="620" y2="595" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <text x="60" y="740" font-size="11" fill="#555">VPC boundary ends here - everything below is outside the VPC (regional AWS services / internet)</text>
+
+  <!-- SQS queue box (outside VPC, AWS-managed) -->
+  <rect x="700" y="770" width="200" height="70" rx="6" fill="#fde2e2" stroke="#c53030"/>
+  <rect x="878" y="774" width="18" height="16" rx="3" fill="#2b6cb0"/>
+  <text x="887" y="786" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">T</text>
+  <text x="800" y="793" text-anchor="middle" font-size="12" font-weight="700" fill="#822727">SQS queue</text>
+  <text x="800" y="810" text-anchor="middle" font-size="10" fill="#822727">vmapp-requests-queue</text>
+  <line x1="830" y1="665" x2="800" y2="770" stroke="#444" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+
+  <!-- SNS topic box -->
+  <rect x="960" y="770" width="200" height="70" rx="6" fill="#fde2e2" stroke="#c53030"/>
+  <rect x="1138" y="774" width="18" height="16" rx="3" fill="#2b6cb0"/>
+  <text x="1147" y="786" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">T</text>
+  <text x="1060" y="793" text-anchor="middle" font-size="12" font-weight="700" fill="#822727">SNS topic</text>
+  <text x="1060" y="810" text-anchor="middle" font-size="10" fill="#822727">vmapp-notifications</text>
+  <line x1="1060" y1="665" x2="1060" y2="770" stroke="#444" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+
+  <!-- Email -->
+  <rect x="1000" y="880" width="220" height="50" rx="6" fill="#f2f2f2" stroke="#888"/>
+  <text x="1110" y="909" text-anchor="middle" font-size="12" fill="#222">Email: david.sosi@gmail.com</text>
+  <line x1="1060" y1="840" x2="1110" y2="880" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="1000" y="865" font-size="10" fill="#444">record created / file uploaded / status changed</text>
+
+  <!-- S3 bucket box -->
+  <rect x="440" y="770" width="220" height="70" rx="6" fill="#e2f6e8" stroke="#2f855a"/>
+  <rect x="590" y="774" width="60" height="16" rx="3" fill="#718096"/>
+  <text x="620" y="786" text-anchor="middle" font-size="9" font-weight="700" fill="#fff">existing</text>
+  <text x="550" y="793" text-anchor="middle" font-size="12" font-weight="700" fill="#22543d">S3 bucket</text>
+  <text x="550" y="810" text-anchor="middle" font-size="10" fill="#22543d">nginx-content-...-il-central-1-an</text>
+  <text x="550" y="825" text-anchor="middle" font-size="9" fill="#276749">prefix: user-choices/</text>
+  <line x1="600" y1="665" x2="560" y2="770" stroke="#444" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+
+  <!-- Legend -->
+  <rect x="60" y="950" width="14" height="14" fill="#c9f2d8" stroke="#2f855a"/>
+  <text x="80" y="961" font-size="10" fill="#333">Private subnet (no public IP, no NAT)</text>
+  <rect x="330" y="950" width="14" height="14" fill="#ffe9b3" stroke="#b8860b"/>
+  <text x="350" y="961" font-size="10" fill="#333">Public subnet</text>
+  <rect x="460" y="950" width="14" height="14" fill="#e5d8f7" stroke="#6b46c1"/>
+  <text x="480" y="961" font-size="10" fill="#333">VPC endpoint</text>
+  <line x1="620" y1="957" x2="650" y2="957" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="656" y="961" font-size="10" fill="#333">solid = app/network traffic</text>
+  <line x1="850" y1="957" x2="880" y2="957" stroke="#888" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <text x="886" y="961" font-size="10" fill="#333">grey dashed = AWS API call via endpoint</text>
+
+  <rect x="60" y="982" width="18" height="16" rx="3" fill="#2b6cb0"/>
+  <text x="69" y="994" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">T</text>
+  <text x="84" y="994" font-size="10" fill="#333">= created by Terraform</text>
+  <rect x="260" y="982" width="18" height="16" rx="3" fill="#c05621"/>
+  <text x="269" y="994" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">A</text>
+  <text x="284" y="994" font-size="10" fill="#333">= software configured/deployed by Ansible (same EC2 box)</text>
+  <line x1="700" y1="989" x2="730" y2="989" stroke="#c05621" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#arrow-orange)"/>
+  <text x="736" y="994" font-size="10" fill="#333">orange dashed = Ansible control node (frontend) configuring over SSH</text>
+</svg>

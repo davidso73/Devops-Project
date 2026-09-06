@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>VM Chooser</title>
+  <style>
+    body { font-family: -apple-system, Segoe UI, Arial, sans-serif; max-width: 720px; margin: 40px auto; color: #1a1a1a; }
+    h1 { font-size: 1.4rem; }
+    .flash { background: #fff3cd; border: 1px solid #ffe69c; padding: 8px 12px; border-radius: 6px; margin-bottom: 16px; }
+    label { display: block; margin-top: 12px; font-weight: 600; }
+    input[type=text], input[type=password] { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; }
+    fieldset { margin-top: 12px; border: 1px solid #ddd; border-radius: 6px; }
+    button { margin-top: 16px; padding: 8px 16px; cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; margin-top: 24px; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+    nav { margin-bottom: 16px; font-size: 0.9rem; }
+    nav a { margin-right: 12px; }
+    .status-COMPLETED { color: #1a7f37; font-weight: 600; }
+    .status-PENDING { color: #9a6700; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <nav>
+    {% if username %}
+      Logged in as <strong>{{ username }}</strong> &middot; <a href="{{ url_for('logout') }}">Log out</a>
+    {% else %}
+      <a href="{{ url_for('login') }}">Log in</a> &middot; <a href="{{ url_for('register') }}">Register</a>
+    {% endif %}
+  </nav>
+
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      {% for message in messages %}
+        <div class="flash">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+</body>
+</html>

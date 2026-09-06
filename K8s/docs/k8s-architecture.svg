@@ -1,0 +1,164 @@
+<svg viewBox="0 0 1320 1180" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#444"/>
+    </marker>
+    <marker id="arrow-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b46c1"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1320" height="1180" fill="#ffffff"/>
+
+  <text x="660" y="28" text-anchor="middle" font-size="20" font-weight="700" fill="#111">VM Chooser on EKS - Kubernetes Architecture (il-central-1)</text>
+  <text x="660" y="46" text-anchor="middle" font-size="11" fill="#555">Shares RDS / S3 / SQS / SNS with the separate EC2+Ansible deployment (see docs/architecture.svg)</text>
+
+  <!-- Internet user -->
+  <rect x="585" y="62" width="150" height="36" rx="6" fill="#f2f2f2" stroke="#888"/>
+  <text x="660" y="84" text-anchor="middle" font-size="13" fill="#222">Internet user</text>
+  <line x1="660" y1="98" x2="660" y2="128" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="675" y="118" font-size="11" fill="#444">HTTP :80 (no HTTPS - see README)</text>
+
+  <!-- ALB -->
+  <rect x="560" y="128" width="200" height="40" rx="6" fill="#fde9c8" stroke="#b8860b"/>
+  <text x="660" y="145" text-anchor="middle" font-size="12" font-weight="700" fill="#5c4400">Public ALB (Ingress)</text>
+  <text x="660" y="160" text-anchor="middle" font-size="9" fill="#7a5b00">internet-facing, target-type: ip</text>
+  <line x1="660" y1="168" x2="660" y2="196" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- VPC boundary -->
+  <rect x="50" y="196" width="1220" height="760" rx="10" fill="#eef4fb" stroke="#2b6cb0" stroke-width="2"/>
+  <text x="65" y="218" font-size="13" font-weight="700" fill="#2b6cb0">VPC: dev-enviroment-vpc (10.0.0.0/16) - shared with the EC2 deployment</text>
+
+  <!-- Public subnets note -->
+  <rect x="70" y="230" width="1180" height="30" rx="6" fill="#fff7e6" stroke="#d69e2e"/>
+  <text x="80" y="250" font-size="11" fill="#8a6d1a">Public subnets (dev-enviroment-public-a/b) - tagged kubernetes.io/role/elb=1 so the ALB Controller can place the ALB here; also hosts the build/ops EC2 (Docker/kubectl/helm - not part of the app)</text>
+
+  <!-- EKS Cluster boundary -->
+  <rect x="70" y="272" width="1180" height="590" rx="10" fill="#e6f7f0" stroke="#2f855a" stroke-width="2" stroke-dasharray="3,2"/>
+  <text x="85" y="294" font-size="13" font-weight="700" fill="#22543d">EKS Cluster: vmapp-eks</text>
+
+  <!-- Node group / private subnets -->
+  <rect x="90" y="306" width="1140" height="220" rx="8" fill="#d7f0e3" stroke="#2f855a"/>
+  <text x="105" y="326" font-size="12" font-weight="700" fill="#22543d">Managed Node Group (2x t3.medium) - dedicated private subnets (10.0.32.0/20, 10.0.48.0/20) + NAT Gateway</text>
+
+  <!-- Namespace -->
+  <rect x="110" y="340" width="1100" height="170" rx="8" fill="#c9f2d8" stroke="#2f855a"/>
+  <text x="125" y="358" font-size="12" font-weight="700" fill="#22543d">Namespace: devops-app</text>
+
+  <!-- Frontend pod -->
+  <rect x="130" y="370" width="330" height="120" rx="6" fill="#ffe9b3" stroke="#b8860b"/>
+  <text x="295" y="388" text-anchor="middle" font-size="12" font-weight="700" fill="#5c4400">Deployment: vmapp-frontend (2 pods)</text>
+  <text x="295" y="404" text-anchor="middle" font-size="10" fill="#5c4400">nginx-unprivileged :8080</text>
+  <text x="295" y="418" text-anchor="middle" font-size="9" fill="#5c4400">SA: vmapp-frontend - NO IAM role</text>
+  <text x="295" y="432" text-anchor="middle" font-size="9" fill="#5c4400">Service: vmapp-frontend (ClusterIP)</text>
+  <text x="295" y="446" text-anchor="middle" font-size="9" fill="#7a5b00">securityContext: nonroot, no priv-esc, cap-drop ALL, RO rootfs</text>
+  <text x="295" y="460" text-anchor="middle" font-size="9" fill="#7a5b00">mounts nginx.conf from ConfigMap</text>
+  <text x="295" y="476" text-anchor="middle" font-size="9" fill="#8a6d1a">image: ECR vmapp-frontend:v1.0.0</text>
+
+  <line x1="460" y1="425" x2="510" y2="425" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="463" y="418" font-size="9" fill="#444">proxy_pass :8000</text>
+
+  <!-- Backend pod -->
+  <rect x="510" y="370" width="330" height="120" rx="6" fill="#c9f2d8" stroke="#2f855a"/>
+  <text x="675" y="388" text-anchor="middle" font-size="12" font-weight="700" fill="#22543d">Deployment: vmapp-backend (2 pods)</text>
+  <text x="675" y="404" text-anchor="middle" font-size="10" fill="#22543d">Flask + gunicorn :8000</text>
+  <text x="675" y="418" text-anchor="middle" font-size="9" fill="#22543d">SA: vmapp-backend - IRSA: sqs:Send, sns:Publish</text>
+  <text x="675" y="432" text-anchor="middle" font-size="9" fill="#22543d">Service: vmapp-backend (ClusterIP, internal only)</text>
+  <text x="675" y="446" text-anchor="middle" font-size="9" fill="#276749">securityContext: nonroot (uid 1000), no priv-esc, cap-drop ALL</text>
+  <text x="675" y="460" text-anchor="middle" font-size="9" fill="#276749">env from ConfigMap + Secret</text>
+  <text x="675" y="476" text-anchor="middle" font-size="9" fill="#286749">image: ECR vmapp-backend:v1.0.0</text>
+
+  <!-- Worker pod -->
+  <rect x="890" y="370" width="320" height="120" rx="6" fill="#c9f2d8" stroke="#2f855a"/>
+  <text x="1050" y="388" text-anchor="middle" font-size="12" font-weight="700" fill="#22543d">Deployment: vmapp-worker (1 pod)</text>
+  <text x="1050" y="404" text-anchor="middle" font-size="10" fill="#22543d">SQS consumer (Python) - no listening port</text>
+  <text x="1050" y="418" text-anchor="middle" font-size="9" fill="#22543d">SA: vmapp-worker - IRSA: sqs:Recv/Del, s3:PutObject, sns:Publish</text>
+  <text x="1050" y="432" text-anchor="middle" font-size="9" fill="#22543d">no Service - not network-reachable by design</text>
+  <text x="1050" y="446" text-anchor="middle" font-size="9" fill="#276749">securityContext: nonroot (uid 1000), no priv-esc, cap-drop ALL</text>
+  <text x="1050" y="460" text-anchor="middle" font-size="9" fill="#276749">exec probe: pgrep -f worker.py</text>
+  <text x="1050" y="476" text-anchor="middle" font-size="9" fill="#286749">image: ECR vmapp-worker:v1.0.0</text>
+
+  <!-- ConfigMap / Secret -->
+  <rect x="130" y="500" width="200" height="0" fill="none"/>
+  <rect x="900" y="500" width="0" height="0" fill="none"/>
+
+  <!-- IRSA arrows to IAM (below namespace box) -->
+  <line x1="675" y1="490" x2="675" y2="540" stroke="#6b46c1" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
+  <line x1="1050" y1="490" x2="900" y2="540" stroke="#6b46c1" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
+  <text x="760" y="518" font-size="9" fill="#6b46c1" text-anchor="middle">IRSA: sts:AssumeRoleWithWebIdentity via OIDC</text>
+
+  <!-- ConfigMap/Secret box -->
+  <rect x="90" y="540" width="1140" height="60" rx="8" fill="#e5d8f7" stroke="#6b46c1"/>
+  <text x="105" y="558" font-size="11" font-weight="700" fill="#44337a">ConfigMap: vmapp-config (region, S3 bucket, SQS URL, SNS ARN, RDS endpoint, DB name/user, nginx.conf)</text>
+  <text x="105" y="574" font-size="11" font-weight="700" fill="#44337a">Secret: vmapp-secrets (DB_PASSWORD, FLASK_SECRET_KEY) - created manually via kubectl, never templated with real values</text>
+  <text x="105" y="590" font-size="10" fill="#553c9a">ServiceAccounts (above) + IAM OIDC provider -&gt; per-service IAM roles (IRSA), scoped least-privilege, no static AWS keys</text>
+
+  <!-- kube-system / LB controller -->
+  <rect x="900" y="610" width="330" height="90" rx="8" fill="#fde2e2" stroke="#c53030"/>
+  <text x="1065" y="628" text-anchor="middle" font-size="11" font-weight="700" fill="#822727">kube-system: aws-load-balancer-controller</text>
+  <text x="1065" y="644" text-anchor="middle" font-size="9" fill="#822727">watches Ingress, provisions/manages the ALB</text>
+  <text x="1065" y="660" text-anchor="middle" font-size="9" fill="#822727">SA: aws-load-balancer-controller - IRSA (AWS-published policy)</text>
+  <line x1="1065" y1="610" x2="1065" y2="540" stroke="#6b46c1" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#arrow-purple)"/>
+
+  <!-- Node group note -->
+  <text x="105" y="510" font-size="9" fill="#276749">Node group security group allows node-to-node + node-to-control-plane traffic (EKS-managed defaults)</text>
+
+  <!-- Backend/worker -> RDS -->
+  <line x1="675" y1="762" x2="675" y2="810" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="1050" y1="762" x2="900" y2="810" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="700" y="790" font-size="9" fill="#444">SQL :5432</text>
+
+  <!-- NetworkPolicy note -->
+  <rect x="90" y="720" width="1140" height="35" rx="6" fill="#fff" stroke="#999" stroke-dasharray="3,2"/>
+  <text x="105" y="742" font-size="10" fill="#555">NetworkPolicy (enforced via VPC CNI): default-deny ingress; frontend allowed from VPC CIDR only; backend allowed from frontend pods only; worker has no allow-ingress rule at all</text>
+
+  <text x="65" y="792" font-size="11" fill="#555">EKS cluster boundary ends here - everything below is outside the cluster (shared with the EC2 deployment)</text>
+
+  <!-- RDS -->
+  <rect x="580" y="810" width="260" height="70" rx="8" fill="#e6ecfa" stroke="#3949ab"/>
+  <text x="710" y="832" text-anchor="middle" font-size="12" font-weight="700" fill="#283593">RDS PostgreSQL (shared)</text>
+  <text x="710" y="848" text-anchor="middle" font-size="9" fill="#3949ab">vmapp-db - same instance as the EC2 deployment</text>
+  <text x="710" y="862" text-anchor="middle" font-size="9" fill="#3949ab">SG allows node-group SG on :5432</text>
+
+  <!-- S3 / SQS / SNS -->
+  <rect x="130" y="810" width="220" height="70" rx="8" fill="#e2f6e8" stroke="#2f855a"/>
+  <text x="240" y="832" text-anchor="middle" font-size="12" font-weight="700" fill="#22543d">S3 bucket (shared)</text>
+  <text x="240" y="848" text-anchor="middle" font-size="9" fill="#22543d">nginx-content-...-il-central-1-an</text>
+  <text x="240" y="862" text-anchor="middle" font-size="9" fill="#276749">worker writes to user-choices/ via IRSA</text>
+
+  <rect x="900" y="810" width="180" height="70" rx="8" fill="#fde2e2" stroke="#c53030"/>
+  <text x="990" y="832" text-anchor="middle" font-size="12" font-weight="700" fill="#822727">SQS + SNS (shared)</text>
+  <text x="990" y="848" text-anchor="middle" font-size="9" fill="#822727">vmapp-requests-queue</text>
+  <text x="990" y="862" text-anchor="middle" font-size="9" fill="#822727">vmapp-notifications</text>
+
+  <line x1="350" y1="845" x2="510" y2="475" stroke="#444" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <line x1="900" y1="845" x2="840" y2="475" stroke="#444" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+
+  <!-- ECR -->
+  <rect x="1100" y="900" width="180" height="60" rx="8" fill="#f0f0f0" stroke="#888"/>
+  <text x="1190" y="922" text-anchor="middle" font-size="11" font-weight="700" fill="#333">ECR (3 repos)</text>
+  <text x="1190" y="938" text-anchor="middle" font-size="9" fill="#555">immutable tags, scan-on-push</text>
+  <text x="1190" y="952" text-anchor="middle" font-size="8" fill="#777">nodes pull images from here</text>
+
+  <!-- Legend -->
+  <rect x="65" y="1000" width="14" height="14" fill="#c9f2d8" stroke="#2f855a"/>
+  <text x="85" y="1011" font-size="10" fill="#333">Private (no public IP)</text>
+  <rect x="260" y="1000" width="14" height="14" fill="#ffe9b3" stroke="#b8860b"/>
+  <text x="280" y="1011" font-size="10" fill="#333">Public-facing</text>
+  <rect x="420" y="1000" width="14" height="14" fill="#e5d8f7" stroke="#6b46c1"/>
+  <text x="440" y="1011" font-size="10" fill="#333">Config/Secret/ServiceAccount</text>
+  <line x1="660" y1="1007" x2="690" y2="1007" stroke="#444" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="696" y="1011" font-size="10" fill="#333">app/network traffic</text>
+  <line x1="850" y1="1007" x2="880" y2="1007" stroke="#888" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <text x="886" y="1011" font-size="10" fill="#333">AWS API call</text>
+
+  <rect x="65" y="1022" width="14" height="14" fill="none" stroke="#6b46c1" stroke-width="2" stroke-dasharray="4,2"/>
+  <text x="85" y="1033" font-size="10" fill="#333">purple dashed = IRSA (ServiceAccount -&gt; IAM role via OIDC)</text>
+  <rect x="420" y="1022" width="14" height="14" fill="none" stroke="#2f855a" stroke-width="2" stroke-dasharray="3,2"/>
+  <text x="440" y="1033" font-size="10" fill="#333">EKS cluster boundary</text>
+  <rect x="650" y="1022" width="14" height="14" fill="none" stroke="#999" stroke-dasharray="3,2"/>
+  <text x="670" y="1033" font-size="10" fill="#333">NetworkPolicy-enforced boundary</text>
+
+  <text x="65" y="1060" font-size="10" fill="#555">Security boundaries: public = ALB only; private = node group subnets (no public IP, NAT egress only); internal = namespace-scoped NetworkPolicy rules between pods.</text>
+  <text x="65" y="1078" font-size="10" fill="#555">Node groups: 1 managed node group (vmapp-node-group), 2x t3.medium, spread across 2 AZs (il-central-1a/b) for scheduling redundancy.</text>
+</svg>

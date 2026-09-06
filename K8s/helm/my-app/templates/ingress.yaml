@@ -1,0 +1,29 @@
+# Public ALB, HTTP only - no domain/ACM certificate exists in this account.
+# See README "Ingress Security" for why, and what real HTTPS would need.
+# Only the frontend Service is reachable through this - backend and worker
+# have no route here at all, by omission.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vmapp-ingress
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "vmapp.labels" . | nindent 4 }}
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/group.name: {{ .Values.ingress.groupName }}
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    alb.ingress.kubernetes.io/healthcheck-path: /
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: vmapp-frontend
+                port:
+                  number: 80

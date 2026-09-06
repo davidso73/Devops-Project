@@ -1,0 +1,2 @@
+service_name: worker
+app_exec: "python worker.py"

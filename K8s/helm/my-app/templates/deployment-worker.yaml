@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vmapp-worker
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "vmapp.selectorLabels" "worker" | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas.worker }}
+  selector:
+    matchLabels:
+      {{- include "vmapp.selectorLabels" "worker" | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vmapp.selectorLabels" "worker" | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccounts.worker.name }}
+      containers:
+        - name: worker
+          image: "{{ .Values.image.workerRepository }}:{{ .Values.image.tag }}"
+          # No ports: the worker only polls SQS, it never listens on a socket -
+          # matches the EC2 deployment, where it isn't network-reachable either.
+          envFrom:
+            - configMapRef: { name: vmapp-config }
+            - secretRef: { name: {{ .Values.secretName }} }
+          resources:
+            {{- toYaml .Values.resources.worker | nindent 12 }}
+          readinessProbe:
+            exec:
+              command: ["pgrep", "-f", "worker.py"]
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          livenessProbe:
+            exec:
+              command: ["pgrep", "-f", "worker.py"]
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]

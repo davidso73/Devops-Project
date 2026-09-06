@@ -1,0 +1,25 @@
+---
+- name: Install nginx
+  ansible.builtin.dnf:
+    name: nginx
+    state: present
+
+- name: Remove the default nginx site
+  ansible.builtin.file:
+    path: /etc/nginx/conf.d/default.conf
+    state: absent
+
+- name: Template the reverse-proxy config for the backend
+  ansible.builtin.template:
+    src: vmapp.conf.j2
+    dest: /etc/nginx/conf.d/vmapp.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart nginx
+
+- name: Enable and start nginx
+  ansible.builtin.systemd:
+    name: nginx
+    enabled: true
+    state: started

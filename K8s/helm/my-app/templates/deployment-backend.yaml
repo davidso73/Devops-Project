@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vmapp-backend
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "vmapp.selectorLabels" "backend" | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas.backend }}
+  selector:
+    matchLabels:
+      {{- include "vmapp.selectorLabels" "backend" | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vmapp.selectorLabels" "backend" | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccounts.backend.name }}
+      containers:
+        - name: backend
+          image: "{{ .Values.image.backendRepository }}:{{ .Values.image.tag }}"
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef: { name: vmapp-config }
+            - secretRef: { name: {{ .Values.secretName }} }
+          resources:
+            {{- toYaml .Values.resources.backend | nindent 12 }}
+          readinessProbe:
+            httpGet: { path: /, port: 8000 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /, port: 8000 }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]

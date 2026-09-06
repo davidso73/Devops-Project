@@ -1,0 +1,22 @@
+---
+# Configures and deploys the VM Chooser app onto infrastructure created by
+# ../terraform. Run from inside this directory:
+#   ansible-playbook -i inventory.ini playbook.yml
+
+- name: Basic setup on every server
+  hosts: all
+  become: true
+  roles:
+    - common
+
+- name: Install and configure nginx on the frontend
+  hosts: frontend
+  become: true
+  roles:
+    - nginx
+
+- name: Deploy the backend and worker services
+  hosts: app
+  become: true
+  roles:
+    - app
