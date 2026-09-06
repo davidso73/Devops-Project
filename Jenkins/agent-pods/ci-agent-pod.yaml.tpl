@@ -29,9 +29,12 @@ spec:
       # Jenkins execs `buildctl` calls into this already-running container
       # per build step, it doesn't need to be the "cat/sleep" placeholder
       # pattern the other containers use.
-      env:
-        - name: BUILDKITD_FLAGS
-          value: "--oci-worker-no-process-sandbox"
+      # BUILDKITD_FLAGS (the commonly-documented env var for this image) is
+      # NOT actually consumed by this entrypoint - confirmed live via
+      # /proc/<pid>/cmdline showing buildkitd started with zero arguments
+      # despite the env var being set. Passing the flag as container args
+      # instead, which the entrypoint does forward to buildkitd.
+      args: ["--oci-worker-no-process-sandbox"]
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
