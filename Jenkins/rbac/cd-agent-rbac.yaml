@@ -46,9 +46,13 @@ rules:
     verbs: ["get", "list", "create", "update", "patch"]
   # Read-only: confirms devops-app is the intended target before deploying,
   # and nothing else - this identity has no permissions in any other namespace.
+  # "patch" (not "create"/"delete") lets CD align the pre-existing
+  # devops-app namespace's Helm ownership annotations before
+  # `helm upgrade --install` - see Jenkinsfile-cd's Deploy stage. CD can
+  # never create or remove a namespace, only adjust metadata on this one.
   - apiGroups: [""]
     resources: ["namespaces"]
-    verbs: ["get"]
+    verbs: ["get", "patch"]
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["get", "list", "watch"]

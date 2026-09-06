@@ -1090,3 +1090,41 @@ down what `Jenkins/` created.
   registry API wants Docker v2 schema2 media types; `buildctl`'s `--output`
   now passes `oci-mediatypes=false` explicitly rather than relying on
   whatever the resolved BuildKit version defaults to.
+- **BuildKit rootless needed three separate, individually-confirmed fixes**
+  before a single image built at all: (1) `allowPrivilegeEscalation: true`,
+  because `newuidmap`/`newgidmap` are setuid-root and `no_new_privs`
+  disables setuid outright; (2) `capabilities: add: ["SETUID", "SETGID",
+  "SYS_ADMIN"]` on top of `drop: ["ALL"]`, because a capability excluded
+  from the bounding set stays unavailable even to "root" inside BuildKit's
+  own user namespace (needed once for the namespace setup itself, again one
+  layer deeper for each `RUN` step's own `/proc` mount); (3) the
+  commonly-documented `BUILDKITD_FLAGS` environment variable is not actually
+  read by this image's entrypoint at all (confirmed via
+  `/proc/<pid>/cmdline` showing zero arguments regardless) - the flag only
+  takes effect passed as the container's `args`. Each was found by running
+  a real build against the live cluster, not by reasoning about the chart
+  in the abstract - documented here in the order they were actually hit.
+- **The CD tools image's `kubectl` was silently an S3 XML error page, not a
+  binary** - the original Dockerfile downloaded it from an EKS-specific S3
+  URL pinned to a build date that doesn't exist for `v1.31.0`, and a bare
+  `curl -sSL` (no `-f`) saves a 403/404 response body with exit code 0
+  either way. The image built cleanly, `chmod +x` succeeded, and the break
+  only surfaced when the first real CD deploy actually invoked `kubectl`
+  and got `exec format error`. Fixed by switching to the canonical,
+  version-stable `dl.k8s.io` release URL and adding `-f` to every download
+  in that Dockerfile so a bad response fails the build instead of baking
+  itself in - `vmapp-cd-tools` bumped to `v1.0.1` since ECR's immutable tags
+  meant `v1.0.0` couldn't be overwritten.
+- **The app's Helm chart (`K8s/helm/my-app`, from the K8s phase) owns a
+  `Namespace` resource in its own templates, and `devops-app` already
+  existed from an earlier manual install under a different release
+  name/namespace pairing** - `helm upgrade --install` from the CD pipeline
+  refused to "adopt" it (`invalid ownership metadata ... current value is
+  'default'`), the standard Helm behavior for a pre-existing resource whose
+  ownership annotations point somewhere else. Rather than edit the K8s
+  phase's chart (out of scope for this phase, and a shared resource other
+  tooling also depends on), `Jenkinsfile-cd`'s Deploy stage aligns the
+  namespace's `meta.helm.sh/release-name`/`release-namespace` annotations to
+  this release before every `helm upgrade --install` - idempotent, and
+  scoped by RBAC to `patch` only (`rbac/cd-agent-rbac.yaml`), never
+  `create`/`delete`, on the one namespace CD is allowed to touch.

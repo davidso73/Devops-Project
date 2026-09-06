@@ -20,7 +20,7 @@ spec:
         requests: { cpu: "50m", memory: "96Mi" }
         limits: { cpu: "200m", memory: "192Mi" }
     - name: deploy-tools
-      image: 832767338129.dkr.ecr.il-central-1.amazonaws.com/vmapp-cd-tools:v1.0.0
+      image: 832767338129.dkr.ecr.il-central-1.amazonaws.com/vmapp-cd-tools:v1.0.1
       imagePullPolicy: IfNotPresent
       command: ["sleep"]
       args: ["99d"]

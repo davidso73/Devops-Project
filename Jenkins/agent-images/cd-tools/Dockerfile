@@ -7,11 +7,19 @@ FROM debian:12-slim
 ARG KUBECTL_VERSION=v1.31.0
 ARG HELM_VERSION=v3.15.4
 
+# -f (--fail) on every download below is load-bearing, not stylistic: the
+# original EKS-specific S3 URL for kubectl pointed at a build date that
+# doesn't exist for this version, and a bare `curl -sSL` (no -f) silently
+# saved the resulting S3 "NoSuchKey" XML error page AS the kubectl binary
+# with exit code 0 - confirmed live, the CD pipeline's first real deploy got
+# all the way to actually invoking that "kubectl" before failing with
+# "exec format error" (it's XML, not an ELF binary). dl.k8s.io is the
+# canonical, version-stable release URL - no build-date guessing.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git curl ca-certificates \
-    && curl -sSL -o /usr/local/bin/kubectl "https://s3.us-west-2.amazonaws.com/amazon-eks/${KUBECTL_VERSION}/2024-09-12/bin/linux/amd64/kubectl" \
+    && curl -fsSL -o /usr/local/bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
     && chmod +x /usr/local/bin/kubectl \
-    && curl -sSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" -o /tmp/helm.tar.gz \
+    && curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" -o /tmp/helm.tar.gz \
     && tar -xzf /tmp/helm.tar.gz -C /tmp \
     && mv /tmp/linux-amd64/helm /usr/local/bin/helm \
     && rm -rf /tmp/helm.tar.gz /tmp/linux-amd64 \
