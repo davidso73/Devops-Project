@@ -1114,7 +1114,15 @@ down what `Jenkins/` created.
   version-stable `dl.k8s.io` release URL and adding `-f` to every download
   in that Dockerfile so a bad response fails the build instead of baking
   itself in - `vmapp-cd-tools` bumped to `v1.0.1` since ECR's immutable tags
-  meant `v1.0.0` couldn't be overwritten.
+  meant `v1.0.0` couldn't be overwritten. A second, smaller version of the
+  same "the image builds cleanly but a tool is silently missing" pattern
+  followed right after: the Dockerfile removed `curl` after using it to
+  fetch kubectl/helm (shrinking the image, standard practice for a
+  single-purpose tool), but `Jenkinsfile-cd`'s own smoke test needs `curl`
+  to probe the app's ALB - the first real deploy actually succeeded
+  end-to-end (rollout, image verification, all pods healthy) and still
+  reported `FAILURE` purely because that one later stage hit
+  `curl: not found`. `v1.0.2` keeps `curl` installed.
 - **The app's Helm chart (`K8s/helm/my-app`, from the K8s phase) owns a
   `Namespace` resource in its own templates, and `devops-app` already
   existed from an earlier manual install under a different release

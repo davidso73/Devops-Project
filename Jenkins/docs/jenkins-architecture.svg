@@ -93,7 +93,7 @@
   <text x="530" y="610" text-anchor="middle" font-size="9" fill="#3949ab">deploy, rollout wait, verify, smoke test</text>
   <text x="530" y="624" text-anchor="middle" font-size="9" fill="#3949ab">structurally cannot rebuild an image</text>
   <text x="530" y="638" text-anchor="middle" font-size="9" fill="#3949ab">securityContext: nonroot, cap-drop ALL</text>
-  <text x="530" y="652" text-anchor="middle" font-size="8" fill="#3949ab">image: ECR vmapp-cd-tools:v1.0.1</text>
+  <text x="530" y="652" text-anchor="middle" font-size="8" fill="#3949ab">image: ECR vmapp-cd-tools:v1.0.2</text>
 
   <line x1="240" y1="498" x2="240" y2="520" stroke="#c05621" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#arrow-orange)"/>
   <line x1="370" y1="450" x2="530" y2="520" stroke="#c05621" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#arrow-orange)"/>

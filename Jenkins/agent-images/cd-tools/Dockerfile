@@ -1,7 +1,11 @@
-# Pinned, purpose-built CD agent image: kubectl + helm + git only - no
-# Docker, no BuildKit, nothing capable of building an image. This is a
+# Pinned, purpose-built CD agent image: kubectl + helm + git + curl only -
+# no Docker, no BuildKit, nothing capable of building an image. This is a
 # structural guarantee that the CD pipeline cannot rebuild what CI already
-# built, not just a policy statement.
+# built, not just a policy statement. curl stays installed (an earlier
+# version removed it right after the kubectl/helm downloads to shrink the
+# image) - Jenkinsfile-cd's own smoke test needs it to probe the app's ALB,
+# confirmed live: the first real deploy actually succeeded end to end and
+# still reported FAILURE purely because "curl: not found" in that stage.
 FROM debian:12-slim
 
 ARG KUBECTL_VERSION=v1.31.0
@@ -23,7 +27,7 @@ RUN apt-get update \
     && tar -xzf /tmp/helm.tar.gz -C /tmp \
     && mv /tmp/linux-amd64/helm /usr/local/bin/helm \
     && rm -rf /tmp/helm.tar.gz /tmp/linux-amd64 \
-    && apt-get remove -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 1000 jenkins \
     && useradd --system --uid 1000 --gid jenkins --create-home --home-dir /home/jenkins jenkins
 
