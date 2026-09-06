@@ -34,7 +34,7 @@ pipeline {
                 container('tools') {
                     sh '''
                         echo "Commit:      $(git rev-parse HEAD)"
-                        echo "Branch:      ${BRANCH_NAME:-unknown}"
+                        echo "Branch:      ${GIT_BRANCH:-unknown}"
                         echo "Build:       #${BUILD_NUMBER}"
                         echo "Image tag:   ${IMAGE_TAG}"
                     '''
@@ -195,16 +195,20 @@ EOF
         }
         success {
             script {
-                if (env.BRANCH_NAME == 'main') {
-                    build job: 'application-cd', wait: false, parameters: [
-                        string(name: 'IMAGE_TAG', value: env.IMAGE_TAG),
-                        string(name: 'TARGET_NAMESPACE', value: 'devops-app'),
-                        string(name: 'CI_BUILD_NUMBER', value: env.BUILD_NUMBER),
-                        string(name: 'GIT_COMMIT_SHA', value: env.GIT_COMMIT_SHORT),
-                    ]
-                } else {
-                    echo "Not main branch (${env.BRANCH_NAME}) - CD not triggered automatically."
-                }
+                // application-ci is a plain (not Multibranch) pipelineJob
+                // whose git SCM is hardcoded to branch('main') - see
+                // seed-job.groovy - so env.BRANCH_NAME (Multibranch-only,
+                // never set here) is not the right signal for "is this
+                // main", and checking it always evaluated false, silently
+                // never triggering CD at all. This job only ever builds
+                // main by construction, so a successful build here always
+                // means "trigger CD" - no branch check needed.
+                build job: 'application-cd', wait: false, parameters: [
+                    string(name: 'IMAGE_TAG', value: env.IMAGE_TAG),
+                    string(name: 'TARGET_NAMESPACE', value: 'devops-app'),
+                    string(name: 'CI_BUILD_NUMBER', value: env.BUILD_NUMBER),
+                    string(name: 'GIT_COMMIT_SHA', value: env.GIT_COMMIT_SHORT),
+                ]
             }
         }
     }
