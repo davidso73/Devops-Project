@@ -15,7 +15,7 @@ REPO_ROOT="$(cd "$JENKINS_DIR/.." && pwd)"
 CHART_VERSION="5.9.56"
 AWS_REGION="il-central-1"
 VPC_ID="vpc-078790f7a168052e8"
-ALLOWLIST_IP="79.177.139.162/32"   # residential IP for interactive UI access -
+ALLOWLIST_IP="79.177.129.213/32"   # residential IP for interactive UI access -
                                      # rotates periodically; re-run this script
                                      # (or a single `aws ec2 authorize-security-group-ingress`)
                                      # with the current IP if the UI becomes unreachable
