@@ -37,10 +37,16 @@ variable "existing_rds_sg_id" {
   default     = "sg-038aba6aca62a3ebc"
 }
 
+# NOTE: unlike existing_rds_sg_id, this one is NOT stable across a
+# terraform/ recreate - vpc_endpoints is a resource IN that state (not a
+# pre-existing shared SG), so destroying+reapplying that stack gives it a
+# brand new ID. Re-check with `aws ec2 describe-security-groups
+# --filters Name=group-name,Values=vmapp-vpc-endpoints-sg` after any
+# terraform/ recreate and update this default to match.
 variable "existing_vpc_endpoints_sg_id" {
   description = "Existing SQS/SNS VPC interface endpoint security group (from the EC2 stack) - gets a new ingress rule so EKS pods can use it too. Needed because VPC-endpoint private DNS resolves VPC-wide, so EKS pods resolve sns./sqs.<region>.amazonaws.com to this endpoint's private IP even though they were never otherwise going to use it."
   type        = string
-  default     = "sg-0de108e1c67290fcd"
+  default     = "sg-0eb49a43b236df34f"
 }
 
 variable "s3_bucket_name" {
